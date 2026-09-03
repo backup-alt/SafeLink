@@ -1,0 +1,9 @@
+copernicusmarine==2.4.1
+fastapi==0.141.1
+h5netcdf==1.8.1
+h5py==3.16.0
+numpy==2.5.2
+pillow==12.3.0
+mapbox-vector-tile==2.2.0
+uvicorn[standard]==0.52.4
+xarray==2026.7.0
