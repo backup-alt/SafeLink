@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+.pnpm-store
+node_modules
+dist
+copernicus_data
+__pycache__
+*.py[cod]
+*.tsbuildinfo
+*.log
+safelink-*.png
+debug-*.png

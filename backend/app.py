@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from functools import lru_cache
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -20,7 +21,7 @@ from .data_service import DataRepository
 from .refresh import STATE, refresh_loop
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "copernicus_data"
+DATA_DIR = Path(os.getenv("SAFELINK_DATA_DIR", ROOT / "copernicus_data"))
 repository = DataRepository(DATA_DIR)
 
 

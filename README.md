@@ -123,6 +123,28 @@ pnpm run build
 
 On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` and use `/` in paths.
 
+## Deploy on Railway
+
+SafeLink includes a production `Dockerfile` and `railway.json`. The same Railway service hosts both the API and the built web interface.
+
+1. Create a Railway project from this GitHub repository.
+2. Add a persistent volume and mount it at `/data`. Without this volume, downloaded Copernicus files disappear whenever the container is replaced.
+3. Add these service variables in Railway:
+
+   ```text
+   COPERNICUSMARINE_SERVICE_USERNAME=your-copernicus-username
+   COPERNICUSMARINE_SERVICE_PASSWORD=your-copernicus-password
+   SAFELINK_AUTO_REFRESH=true
+   SAFELINK_DATA_DIR=/data
+   ```
+
+4. Deploy the `main` branch and generate a public Railway domain for the service.
+5. Open `/api/health` on that domain and confirm it returns `{"status":"ok"}`.
+
+Do not add Copernicus credentials to GitHub or commit them to a file. Railway injects the variables only at runtime. The first deployment can remain healthy while the initial dataset downloads in the background; map layers appear as each product finishes.
+
+Because the five Indian Ocean products use substantial storage, network transfer, memory, and CPU, select a Railway plan and volume large enough for the workload. Keep at least several gigabytes free to accommodate temporary downloads alongside retained data.
+
 ## Troubleshooting
 
 - **No layer data appears:** Check the terminal for Copernicus authentication or download errors. Run the login command again and leave the server running until the first refresh completes.
