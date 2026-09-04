@@ -103,7 +103,11 @@ def download_dataset_window(
         "output_filename": temporary_path.name,
         "file_format": "netcdf",
         "coordinates_selection_method": "inside",
-        "netcdf_compression_level": 4,
+        # Compression makes xarray materialize the complete subset before writing,
+        # which exceeds small Railway containers. The publisher compresses each
+        # web frame immediately afterwards, so raw NetCDF compression is wasteful.
+        "netcdf_compression_level": 0,
+        "disable_progress_bar": True,
         "overwrite": True,
     }
     if has_depth:
