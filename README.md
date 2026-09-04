@@ -1,6 +1,6 @@
-# SafeLink Ocean Map
+# ORCA Marine Intelligence Map
 
-SafeLink is a local, browser-based ocean-conditions map powered by fresh Copernicus Marine data. The MVP covers the Indian Ocean, Arabian Sea, and Bay of Bengal (`20°E–120°E`, `60°S–30°N`) and presents five layers through a Windy-inspired interface.
+ORCA (formerly SafeLink) is a browser-based ocean-conditions and decision-support map powered by Copernicus Marine and official INCOIS PFZ advisories. The MVP covers the Indian Ocean, Arabian Sea, and Bay of Bengal (`20°E–120°E`, `60°S–30°N`) and now includes an optional, tool-using conversational assistant.
 
 ## Features
 
@@ -16,6 +16,7 @@ SafeLink is a local, browser-based ocean-conditions map powered by fresh Coperni
 - Seven-day local-file retention and automatic cleanup
 - Detailed land, coastline, lake, lagoon, and river separation
 - Public local interface with no SafeLink account required
+- Streaming ORCA assistant with authoritative marine tools, optional OpenAI web search, citations, and allowlisted MapLibre actions
 
 SafeLink is intended for visualization and situational awareness. It is not certified navigational or safety guidance.
 
@@ -200,6 +201,122 @@ pnpm run build
 
 On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` and use `/` in paths.
 
+## ORCA conversational assistant
+
+The assistant uses the official OpenAI Python SDK and the Responses API with
+`gpt-5.5`. OpenAI's built-in web search is available to the model for fresh
+external notices and reports; ORCA's own functions remain the source for PFZ and
+Copernicus values. Chat is optional: if it is not configured or has an error,
+the map and every data API continue to work.
+
+```text
+User
+  |
+React chat + MapLibre
+  |
+FastAPI -- OpenAI Responses API (GPT-5.5)
+  |               |
+  |               +-- Web search + cited public sources
+  |
+  +-- ORCA marine tools
+  |      +-- INCOIS PFZ cache and nearest-line calculation
+  |      +-- Copernicus native-grid point sampling
+  |      +-- data availability and map-label place lookup
+  |
+  +-- validated map actions --> existing MapLibre map
+```
+
+### How the assistant works
+
+`POST /api/chat` returns an SSE stream. The frontend incrementally renders answer
+text while showing safe events such as **Finding nearest PFZ**, **Reading marine
+conditions**, **Searching current public information**, and **Updating map**.
+These are tool/activity summaries—not private model reasoning. Reasoning events,
+tool arguments, raw marine payloads, prompts, exceptions, and credentials are
+never streamed. Web citations are allowlisted to HTTP(S), shown inline when
+possible, and collected in expandable source cards. Internal source badges such
+as INCOIS and Copernicus Marine are kept distinct from web citations.
+
+One backend orchestrator decides among six functions:
+
+- `get_marine_conditions` — selected native-grid layers, actual sample times,
+  units, and time offsets from the request;
+- `get_nearest_pfz` and `get_pfz_details` — compact, verified INCOIS advisories;
+- `get_data_availability` — layer coverage and first/last times;
+- `resolve_location` — bounded matches from the existing Natural Earth map-label
+  gazetteer (not a live geocoder or vessel-position source);
+- `update_map` — schema-validated `fly_to`, `place_marker`, `highlight_pfz`,
+  `select_layer`, `set_time`, or `clear_map_highlights` actions only.
+
+The frontend validates every map command again; the model cannot execute
+JavaScript or arbitrary DOM commands. An assistant PFZ highlight must refer to a
+currently verified advisory. A requested time selects the closest source frame
+and displays its actual timestamp rather than pretending it is exact.
+
+Multi-turn context uses `previous_response_id`. A random HttpOnly, SameSite
+browser cookie owns each server-side conversation ID so one browser cannot read
+another browser's conversation. The MVP store is in memory, expires inactive
+sessions after two hours, permits one active reply per conversation, and has
+bounded conversation, concurrency, per-minute, daily, tool-round, and turn
+limits. State is lost when the backend restarts and is not shared between
+multiple Railway replicas. New conversation clears the current server context;
+Stop cancels the browser request and upstream stream. In accordance with the
+Responses API behavior, stored response state is subject to the OpenAI project's
+retention and data-control settings. Do not send secrets in chat.
+
+Every message includes only compact current map context: center, zoom, last
+clicked/confirmed point, selected layer, time, and PFZ identifier. It never sends
+raster arrays, full PFZ geometry, the browser geolocation accuracy value, or an
+API key. A clicked map point is context—not automatically the user's actual
+location. The system prompt requires sourced values, clear observed/forecast/
+advisory/web/inference distinctions, honest missing-data handling, and the
+navigation/safety disclaimer.
+
+### Local OpenAI configuration
+
+Copy the placeholder file and edit the ignored local file:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+Set these values in `.env`:
+
+```text
+OPENAI_API_KEY=<your OpenAI API key>
+OPENAI_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT=medium
+```
+
+Then run the normal setup/start command. `.env` is only for local development;
+it is ignored by Git and excluded from Docker builds. `.env.example` contains
+placeholders only. The existing local `.env.test` key was migrated atomically to
+`.env` and `.env.test` was removed only after verifying the new ignored file.
+The reusable migration utility is `scripts/migrate_local_env.py`; it refuses
+tracked/unknown/conflicting input and never prints credential values.
+
+Optional cost controls are documented in `.env.example`. Defaults are 2,500
+maximum output tokens per model round, five tool rounds, six browser-owner
+requests per minute, 100 total requests per process/day, 20 turns per
+conversation, and three concurrent requests. Web search is capped within the
+agent loop and is omitted after its small per-turn allowance is consumed. These
+are safeguards, not a billing guarantee: check your OpenAI project limits.
+
+Health/configuration check (this never makes a paid model request):
+
+```text
+http://127.0.0.1:8000/api/chat/health
+```
+
+It reports whether a server key and valid settings are present, plus the selected
+model/effort. It does not verify the key, model access, quota, or billing.
+
 ## Deploy on Railway
 
 SafeLink supports a Railway and Hugging Face deployment that keeps all credentials in Railway:
@@ -230,6 +347,29 @@ HF_DATASET_REPO=<hugging-face-user>/safelink-data
 HF_TOKEN=<hugging-face-write-token>
 SAFELINK_AUTO_REFRESH=true
 ```
+
+### Configure OpenAI on Railway
+
+1. Open the Railway project and select the ORCA/SafeLink service.
+2. Open **Variables**.
+3. Add `OPENAI_API_KEY` with your OpenAI API key.
+4. Add `OPENAI_MODEL=gpt-5.5`.
+5. Add `OPENAI_REASONING_EFFORT=medium`.
+6. Optionally add the cost-control variables from `.env.example`.
+7. Save/apply the variables. Railway normally redeploys automatically; otherwise
+   open Deployments and choose **Redeploy**.
+8. Open `https://<railway-domain>/api/chat/health`. Expect `configured: true`,
+   `model: "gpt-5.5"`, and `status: "ready"`. This is configuration-only; send a
+   small chat message to manually confirm key access and quota when you choose.
+
+Do not upload `.env` or add the key to GitHub/Vite variables. Railway production
+uses service Variables. Existing deployments still require the Copernicus,
+Hugging Face, and refresh variables listed above. `PORT` is supplied by Railway;
+`HF_DATASET_REVISION`, `SAFELINK_HF_PREFIX`,
+`SAFELINK_HF_SQUASH_HISTORY`, and `SAFELINK_REFRESH_TOKEN` remain optional.
+
+OpenAI model and web-search use can incur API charges. The application does not
+make a paid request during startup, health checks, builds, or automated tests.
 
 Optional variables:
 

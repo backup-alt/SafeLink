@@ -1,5 +1,10 @@
 .git
 .gitignore
+.env
+.env.*
+*.env
+*.env.local
+.brave-*
 .venv
 .pnpm-store
 node_modules

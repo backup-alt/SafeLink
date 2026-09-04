@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from functools import lru_cache
 from io import BytesIO
 import json
+import logging
 import os
 from pathlib import Path
 from urllib.error import URLError
@@ -18,12 +19,15 @@ from starlette.middleware.gzip import GZipMiddleware
 import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 
+from . import environment  # Load local .env before constructing any services.
 from .data_service import DataRepository
 from .pfz_service import PFZService, PFZUnavailable
 from .pfz_nearest import nearest_pfz
 from .cloud_repository import CloudDataRepository, HuggingFaceDataRepository
 from .huggingface_ingest import publish as publish_huggingface
 from .refresh import STATE, refresh_loop
+from .ai.routes import create_router
+from .ai.openai_client import health as ai_health
 
 ROOT = Path(__file__).resolve().parents[1]
 pfz_service = PFZService()
@@ -117,6 +121,8 @@ def _validate_tile(z: int, x: int, y: int) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if not ai_health()['configured']:
+        logging.getLogger(__name__).warning('ORCA chat unavailable: check server AI configuration. Map services remain enabled.')
     task = (
         asyncio.create_task(_huggingface_refresh_loop())
         if HF_MODE
@@ -131,15 +137,18 @@ async def lifespan(_: FastAPI):
             await task
 
 
-app = FastAPI(title="SafeLink Ocean API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ORCA Ocean API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
-    allow_credentials=False,
-    allow_methods=["GET"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+chat_router = create_router(repository, pfz_service)
+app.include_router(chat_router)
 
 
 @app.get("/api/health")

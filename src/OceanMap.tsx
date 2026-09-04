@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
+import type { MapAction, MapContext } from './chatTypes'
 import { fieldToDataUrl, isLandAt } from './colors'
 import type { Catalog, FieldData, Inspection, LayerMeta, NearestPFZ, OriginLocation, PFZFeature, PFZResponse } from './types'
 
@@ -19,6 +20,9 @@ interface OceanMapProps {
   nearestPFZ: NearestPFZ | null
   originLocation: OriginLocation | null
   pickingLocation: boolean
+  selectedPFZId: number | null
+  onViewChange: (view: { center: MapContext['center']; zoom: number }) => void
+  mapCommand: { id: number; action: MapAction } | null
 }
 
 interface Particle {
@@ -186,11 +190,13 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
   return { lng: minLng, lat: minLat, age: 90 }
 }
 
-function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect, onMapPoint, nearestPFZ, originLocation, pickingLocation }: OceanMapProps) {
+function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect, onMapPoint, nearestPFZ, originLocation, pickingLocation, selectedPFZId, onViewChange, mapCommand }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const labelCanvasRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const viewCallback = useRef(onViewChange)
+  viewCallback.current = onViewChange
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const userPositionedRef = useRef(false)
   const pickingLocationRef = useRef(pickingLocation)
@@ -383,6 +389,12 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
     })
     map.on('mouseout', () => { highlightPFZ(null); callbacksRef.current.onHover(null) })
     mapRef.current = map
+    const publishView = () => {
+      const point = map.getCenter()
+      viewCallback.current({ center: { longitude: ((point.lng + 180) % 360 + 360) % 360 - 180, latitude: point.lat }, zoom: map.getZoom() })
+    }
+    map.on('moveend', publishView)
+    publishView()
     return () => {
       inspectionSequence += 1
       map.off('zoomend', addLandDetails)
@@ -415,7 +427,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
       map.addLayer({
         id: 'pfz-line', type: 'line', source: 'pfz',
         layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['case', ['boolean', ['feature-state', 'hover'], false], '#ffffff', '#ffd166'],
+        paint: { 'line-color': ['case', ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], '#ffffff', '#ffd166'],
           'line-width': ['interpolate', ['linear'], ['zoom'],
             2, ['case', ['boolean', ['feature-state', 'hover'], false], 3.5, 2],
             6, ['case', ['boolean', ['feature-state', 'hover'], false], 4.5, 3],
@@ -439,6 +451,34 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
       map.getCanvas().style.cursor = ''
     }
   }, [pfzEnabled, pfz?.data])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      if (!map.getSource('pfz')) return
+      map.removeFeatureState({ source: 'pfz' }, 'selected')
+      if (selectedPFZId !== null) map.setFeatureState({ source: 'pfz', id: selectedPFZId }, { selected: true })
+    }
+    apply(); map.on('style.load', apply)
+    return () => { map.off('style.load', apply) }
+  }, [selectedPFZId, pfz?.data])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapCommand) return
+    const action = mapCommand.action
+    if (action.type === 'clear_map_highlights') { markerRef.current?.remove(); return }
+    if (action.type !== 'fly_to' && action.type !== 'place_marker') return
+    userPositionedRef.current = true
+    map.setMaxBounds(null)
+    map.flyTo({ center: [action.longitude, action.latitude], zoom: action.zoom, duration: 900 })
+    if (action.type === 'place_marker') {
+      markerRef.current?.remove()
+      const element = document.createElement('div'); element.className = 'coordinate-marker'; element.title = 'ORCA selected point'
+      markerRef.current = new maplibregl.Marker({ element }).setLngLat([action.longitude, action.latitude]).addTo(map)
+    }
+  }, [mapCommand])
 
   useEffect(() => {
     const map = mapRef.current

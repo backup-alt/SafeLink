@@ -1,0 +1,34 @@
+.orca-launch { position:absolute; z-index:8; left:20px; bottom:115px; display:flex; align-items:center; gap:8px; padding:12px 16px; border-radius:24px; color:#70e4dc; cursor:pointer; }
+.orca-chat { position:absolute; z-index:10; left:16px; top:80px; bottom:110px; width:min(405px,calc(100vw - 32px)); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+.orca-chat[hidden] { display:none; }
+.orca-chat-header { display:flex; align-items:center; gap:8px; padding:15px 17px; border-bottom:1px solid #a9dddb22; }
+.orca-chat-header > div { flex:1; } .orca-chat-header b { color:#6ee8e0; letter-spacing:2px; font-size:19px; }
+.orca-chat-header small { display:block; font-size:10px; color:#a8c6cb; margin-top:2px; }
+.orca-chat button { cursor:pointer; } .orca-chat button:disabled { opacity:.4; cursor:default; }
+.orca-chat-header button { background:transparent; border:0; padding:5px; }
+.orca-context { padding:9px 16px; font-size:10px; color:#b0cbd1; background:#07171b55; }
+.orca-notice { padding:10px 16px; font-size:11px; color:#ffda8c; border-bottom:1px solid #ffda8c33; }
+.orca-messages { flex:1; overflow:auto; padding:17px; overscroll-behavior:contain; }
+.orca-welcome h2 { font-size:20px; margin:6px 0 12px; }
+.orca-welcome p { color:#b6cbd1; font-size:12px; line-height:1.7; }
+.orca-welcome button { display:block; width:100%; text-align:left; border:1px solid #9ee2df30; padding:11px; background:#28424a55; border-radius:9px; font-size:11px; margin:9px 0; }
+.orca-welcome small { display:block; color:#99b1b7; font-size:10px; line-height:1.6; margin-top:18px; }
+.orca-message { margin-bottom:20px; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.orca-message.user { background:#31545a66; border-radius:11px; padding:10px 12px; margin-left:28px; }
+.orca-message-role { font-size:10px; font-weight:700; color:#6dded7; display:flex; justify-content:space-between; margin-bottom:6px; }
+.orca-message-role span { font-weight:400; color:#a9c1c8; }
+.orca-answer { white-space:pre-wrap; }
+.orca-chat a { color:#79e0da; text-decoration:underline; text-underline-offset:3px; }
+.orca-activity { margin:8px 0 13px; border:1px solid #8bc0c52b; border-radius:9px; padding:8px 10px; }
+.orca-activity summary { display:flex; gap:5px; align-items:center; font-size:11px; color:#b3c9ce; cursor:pointer; }
+.orca-activity > div { display:flex; gap:8px; align-items:flex-start; padding-top:8px; font-size:11px; color:#cedcde; }
+.orca-activity svg { flex-shrink:0; margin-top:3px; color:#63d9c7; }
+.orca-activity small { display:block; color:#8eafb7; font-size:9px; }
+.orca-sources { font-size:10px; margin-top:12px; }.orca-sources summary { cursor:pointer; color:#b6cbd1; }
+.orca-sources a { display:block; border:1px solid #88c4c32b; padding:7px; border-radius:7px; margin-top:5px; }
+.orca-compose { display:flex; gap:8px; padding:12px; border-top:1px solid #a9dddb22; background:#102228; }
+.orca-compose textarea { flex:1; min-width:0; resize:vertical; max-height:130px; min-height:50px; color:#e7f5f5; background:#21343c; border:1px solid #63818a66; border-radius:9px; padding:10px; font:12px inherit; }
+.orca-compose button { align-self:flex-end; background:#51d7cc; color:#123335; border:0; padding:10px; border-radius:9px; }
+.orca-chat footer { text-align:center; font-size:9px; color:#97b4bc; padding:0 10px 10px; background:#102228; }
+.orca-error { color:#ffd28d; font-size:11px; }.orca-retry { background:transparent; color:#70e4dc; border:1px solid #70e4dc66; border-radius:7px; padding:5px 10px; }
+@media(max-width:800px) { .orca-chat { left:8px; right:8px; width:auto; top:auto; bottom:103px; height:min(73vh,700px); }.orca-launch { left:8px; bottom:108px; } }

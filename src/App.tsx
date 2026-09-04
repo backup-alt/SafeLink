@@ -5,6 +5,9 @@ import {
 } from 'lucide-react'
 import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, prefetchField } from './api'
 import OceanMap from './OceanMap'
+import ChatPanel from './ChatPanel'
+import { isMapAction } from './chatTypes'
+import type { MapAction, MapContext } from './chatTypes'
 import type { Catalog, ConditionSample, FieldData, Inspection, LayerId, LayerMeta, NearestPFZ, OriginLocation, PFZFeature, PFZResponse } from './types'
 
 const LAYER_ICONS = {
@@ -200,6 +203,12 @@ export default function App() {
   const [pfzLoading, setPFZLoading] = useState(true)
   const [pfzError, setPFZError] = useState(false)
   const [selectedPFZ, setSelectedPFZ] = useState<PFZFeature | null>(null)
+  const [clickedLocation, setClickedLocation] = useState<MapContext['clicked_location']>(null)
+  const [mapView, setMapView] = useState<{ center: MapContext['center']; zoom: number }>({ center: null, zoom: 4 })
+  const [mapCommand, setMapCommand] = useState<{ id: number; action: MapAction } | null>(null)
+  const layerRef = useRef<LayerId>(selectedLayer)
+  layerRef.current = selectedLayer
+  const updateMapView = useCallback((view: { center: MapContext['center']; zoom: number }) => setMapView(view), [])
   const [nearestOrigin, setNearestOrigin] = useState<[number, number] | null>(null)
   const [nearest, setNearest] = useState<NearestPFZ | null>(null)
   const [nearestLoading, setNearestLoading] = useState(false)
@@ -283,6 +292,7 @@ export default function App() {
   }, [nearestOrigin, pfz?.data])
 
   const selectMapPoint = useCallback((point: [number, number]) => {
+    setClickedLocation({ longitude: point[0], latitude: point[1] })
     setNearestOrigin(null)
     if (locationStep) {
       locationRequest.current += 1
@@ -408,6 +418,7 @@ export default function App() {
   }, [playing, loading, field?.time, selectedTime, times.length])
 
   const chooseLayer = (id: LayerId) => {
+    layerRef.current = id
     const next = catalog?.layers.find((candidate) => candidate.id === id)
     setSelectedLayer(id)
     setTimeIndex(nearestTimeIndex(next?.times ?? []))
@@ -415,6 +426,42 @@ export default function App() {
     setHover(null)
     setField(null)
     setPlaying(false)
+  }
+
+  const applyChatAction = async (action: MapAction, signal: AbortSignal): Promise<string> => {
+    signal.throwIfAborted()
+    if (!isMapAction(action)) throw new Error('Unsupported map action')
+    setPlaying(false)
+    switch (action.type) {
+      case 'select_layer': {
+        if (!catalog?.layers.find(x => x.id === action.layer)?.available) throw new Error('Layer unavailable')
+        chooseLayer(action.layer)
+        return `Showing ${action.layer.replace('_', ' ')}`
+      }
+      case 'set_time': {
+        const available = catalog?.layers.find(x => x.id === layerRef.current)?.times ?? []
+        if (!available.length) throw new Error('Timeline unavailable')
+        const target = Date.parse(action.time)
+        const index = available.reduce((best, time, i) => Math.abs(Date.parse(time) - target) < Math.abs(Date.parse(available[best]) - target) ? i : best, 0)
+        setTimeIndex(index)
+        return `Map time: ${available[index]} (nearest available)`
+      }
+      case 'highlight_pfz': {
+        const data = await fetchPFZ(signal)
+        signal.throwIfAborted()
+        const feature = data.data.features.find(x => String(x.properties.Sno) === action.pfz_id)
+        if (!feature) throw new Error('PFZ no longer available')
+        setPFZ(data); setPFZEnabled(true); setSelectedPFZ(feature); setNearestOrigin(null); setInspection(null)
+        return `Highlighted INCOIS PFZ ${action.pfz_id}`
+      }
+      case 'clear_map_highlights':
+        setSelectedPFZ(null); setNearestOrigin(null); setInspection(null)
+        setMapCommand({ id: Date.now(), action })
+        return 'Cleared assistant map highlights'
+      case 'fly_to': case 'place_marker':
+        setMapCommand({ id: Date.now(), action })
+        return action.type === 'fly_to' ? 'Moved map to the requested point' : 'Placed a map marker'
+    }
   }
 
   const search = (event: FormEvent) => {
@@ -444,11 +491,14 @@ export default function App() {
         nearestPFZ={pfzEnabled ? nearest : null}
         originLocation={originLocation}
         pickingLocation={!!locationStep && locationStep !== 'confirm'}
+        selectedPFZId={pfzEnabled ? selectedPFZ?.id ?? null : null}
+        onViewChange={updateMapView}
+        mapCommand={mapCommand}
       />
 
       <header className="topbar glass">
         <button className="menu-button" type="button" aria-label="Menu"><Menu size={22} /></button>
-        <div className="brand"><span className="brand-mark">S</span><div><b>SAFE<span>LINK</span></b><small>OCEAN CONDITIONS</small></div></div>
+        <div className="brand"><span className="brand-mark">O</span><div><b>OR<span>CA</span></b><small>OCEAN CONDITIONS</small></div></div>
         <form className={`search ${searchError ? 'invalid' : ''}`} onSubmit={search}>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Coordinates: 12.6, 80.4 or 12°N 80°E" aria-label="Search latitude and longitude" />
           <button type="submit" aria-label="Search coordinates"><Search size={19} /></button>
@@ -485,6 +535,10 @@ export default function App() {
         {nearestError && <small role="status">{nearestError}</small>}
       </section>
       {layer && <Legend layer={layer} />}
+
+      <ChatPanel context={{ ...mapView, clicked_location: clickedLocation ?? (originLocation ? { latitude: originLocation.point[1], longitude: originLocation.point[0] } : null),
+        active_layer: selectedLayer, selected_pfz: selectedPFZ ? String(selectedPFZ.properties.Sno ?? '') : nearest ? String(nearest.feature.properties.Sno ?? '') : null,
+        selected_time: selectedTime ?? null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }} onMapAction={applyChatAction} />
 
       {locationStep && <section className="location-picker glass" aria-labelledby="location-heading">
         <button className="location-close" type="button" onClick={cancelLocation} aria-label="Cancel location selection"><X size={17} /></button>

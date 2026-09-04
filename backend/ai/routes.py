@@ -1,0 +1,107 @@
+import asyncio
+from contextlib import suppress
+import json
+import os
+import re
+import secrets
+from time import monotonic
+from urllib.parse import urlparse
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
+from .agent import Agent
+from .openai_client import AIConfig, health
+from .schemas import ChatRequest, event
+from .sessions import SessionStore
+from .tools import MarineTools
+
+COOKIE = 'orca_browser'
+
+
+def create_router(repository, pfz):
+    router = APIRouter(prefix='/api/chat')
+    store = SessionStore()
+    agent = Agent(MarineTools(repository, pfz))
+
+    def owner(request):
+        value = request.cookies.get(COOKIE, '')
+        if not re.fullmatch('[a-f0-9]{64}', value):
+            raise HTTPException(401, 'Start a new ORCA conversation.')
+        return value
+
+    def check_origin(request):
+        origin = request.headers.get('origin')
+        if origin and urlparse(origin).netloc != request.headers.get('host') and origin not in {'http://localhost:5173', 'http://127.0.0.1:5173'}:
+            raise HTTPException(403, 'Cross-site chat requests are not allowed.')
+
+    @router.get('/health')
+    def chat_health():
+        return health()
+
+    @router.post('/session')
+    async def new_session(request: Request, response: Response):
+        check_origin(request)
+        token = request.cookies.get(COOKIE, '')
+        if not re.fullmatch('[a-f0-9]{64}', token):
+            token = secrets.token_hex(32)
+        key = store.create(token)
+        secure = request.url.scheme == 'https' or request.headers.get('x-forwarded-proto') == 'https' or bool(os.getenv('RAILWAY_PUBLIC_DOMAIN'))
+        response.set_cookie(COOKIE, token, httponly=True, secure=secure,
+                            samesite='strict', max_age=7200, path='/api/chat')
+        response.headers['Cache-Control'] = 'no-store'
+        return {'conversation_id': key}
+
+    @router.delete('/session/{key}')
+    async def delete_session(key: str, request: Request):
+        check_origin(request)
+        value = store.get(key, owner(request))
+        if value.busy:
+            raise HTTPException(409, 'Stop the current reply before clearing the conversation.')
+        del store.sessions[key]
+        return {'cleared': True}
+
+    @router.post('')
+    async def chat(body: ChatRequest, request: Request):
+        check_origin(request)
+        if not health()['configured']:
+            raise HTTPException(503, 'ORCA chat is not configured. Set the server OPENAI_API_KEY and valid AI settings. The map remains available.')
+        config = AIConfig.read()
+        session = store.begin(body.conversation_id, owner(request), config)
+
+        async def stream():
+            queue = asyncio.Queue(maxsize=64)
+            async def produce():
+                try:
+                    async for item in agent.stream(body, session, config):
+                        await queue.put(item)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    await queue.put(event('error', label='ORCA could not finish this reply. Please retry.'))
+                await queue.put(None)
+            task = asyncio.create_task(produce())
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=10)
+                    except TimeoutError:
+                        yield ': heartbeat\n\n'
+                        continue
+                    if item is None:
+                        break
+                    yield 'data: ' + json.dumps(item, ensure_ascii=False) + '\n\n'
+            finally:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+                session.busy = False
+                session.touched = monotonic()
+
+        return StreamingResponse(stream(), media_type='text/event-stream',
+                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
+    # References used by offline tests, never exposed in the API.
+    router.agent = agent
+    router.store = store
+    return router
