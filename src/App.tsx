@@ -1,11 +1,11 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
 import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, prefetchField } from './api'
 import OceanMap from './OceanMap'
-import type { Catalog, ConditionSample, FieldData, Inspection, LayerId, LayerMeta, NearestPFZ, PFZFeature, PFZResponse } from './types'
+import type { Catalog, ConditionSample, FieldData, Inspection, LayerId, LayerMeta, NearestPFZ, OriginLocation, PFZFeature, PFZResponse } from './types'
 
 const LAYER_ICONS = {
   waves: Waves,
@@ -200,12 +200,71 @@ export default function App() {
   const [pfzLoading, setPFZLoading] = useState(true)
   const [pfzError, setPFZError] = useState(false)
   const [selectedPFZ, setSelectedPFZ] = useState<PFZFeature | null>(null)
-  const [mapPoint, setMapPoint] = useState<[number, number] | null>(null)
   const [nearestOrigin, setNearestOrigin] = useState<[number, number] | null>(null)
   const [nearest, setNearest] = useState<NearestPFZ | null>(null)
   const [nearestLoading, setNearestLoading] = useState(false)
   const [nearestError, setNearestError] = useState<string | null>(null)
   const [conditions, setConditions] = useState<Partial<Record<LayerId, ConditionSample | null>>>({})
+  const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>(null)
+  const [originLocation, setOriginLocation] = useState<OriginLocation | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const locationRequest = useRef(0)
+  const locationHeading = useRef<HTMLHeadingElement>(null)
+
+  const cancelLocation = useCallback(() => {
+    locationRequest.current += 1
+    setLocationStep(null)
+    setLocationError(null)
+    setOriginLocation(null)
+  }, [])
+
+  useEffect(() => {
+    if (!locationStep) return
+    locationHeading.current?.focus()
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') cancelLocation() }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [locationStep, cancelLocation])
+  useEffect(() => () => { locationRequest.current += 1 }, [])
+
+  const openLocationPicker = () => {
+    locationRequest.current += 1
+    setLocationStep('choose')
+    setLocationError(null)
+    setOriginLocation(null)
+    setNearestOrigin(null)
+    setInspection(null)
+    setSelectedPFZ(null)
+    setPlaying(false)
+  }
+
+  const locateDevice = () => {
+    const request = ++locationRequest.current
+    setLocationError(null)
+    setOriginLocation(null)
+    if (!window.isSecureContext || !navigator.geolocation) {
+      setLocationError('Device location is unavailable here. Open SafeLink over HTTPS or localhost, or choose your position on the map.')
+      setLocationStep('choose')
+      return
+    }
+    setLocationStep('locating')
+    navigator.geolocation.getCurrentPosition((position) => {
+      if (request !== locationRequest.current) return
+      const { longitude, latitude, accuracy } = position.coords
+      const point: [number, number] = [longitude, latitude]
+      setOriginLocation({ point, source: 'device', accuracy })
+      setFocusPoint(point)
+      setLocationStep('confirm')
+    }, (error) => {
+      if (request !== locationRequest.current) return
+      setLocationStep('choose')
+      setLocationError(error.code === 1
+        ? 'Location access is blocked. Allow Location in your browser’s site settings and enable location services in your computer’s privacy settings, then try again. You can also click your position on the map.'
+        : error.code === 3
+          ? 'Finding your location timed out. Check that device location services are on, retry, or choose your position on the map.'
+          : 'Your device could not determine a location. Turn on location services, retry, or choose your position on the map.')
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
+  }
 
   useEffect(() => {
     if (!nearestOrigin) { setNearest(null); setNearestLoading(false); setNearestError(null); return }
@@ -224,9 +283,19 @@ export default function App() {
   }, [nearestOrigin, pfz?.data])
 
   const selectMapPoint = useCallback((point: [number, number]) => {
-    setMapPoint(point)
     setNearestOrigin(null)
-  }, [])
+    if (locationStep) {
+      locationRequest.current += 1
+      setOriginLocation({ point, source: 'map' })
+      setLocationStep('confirm')
+      setLocationError(null)
+      setInspection(null)
+      setSelectedPFZ(null)
+      return true
+    }
+    setOriginLocation(null)
+    return false
+  }, [locationStep])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -352,7 +421,11 @@ export default function App() {
     event.preventDefault()
     const coordinates = parseCoordinates(query)
     setSearchError(!coordinates)
-    if (coordinates) { setFocusPoint(coordinates); selectMapPoint(coordinates) }
+    if (coordinates) {
+      setFocusPoint(coordinates)
+      selectMapPoint(coordinates)
+      if (locationStep) setOriginLocation({ point: coordinates, source: 'coordinates' })
+    }
   }
 
   return (
@@ -369,6 +442,8 @@ export default function App() {
         onPFZInspect={setSelectedPFZ}
         onMapPoint={selectMapPoint}
         nearestPFZ={pfzEnabled ? nearest : null}
+        originLocation={originLocation}
+        pickingLocation={!!locationStep && locationStep !== 'confirm'}
       />
 
       <header className="topbar glass">
@@ -402,14 +477,43 @@ export default function App() {
           : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} PFZ features`}</small>
         {pfz && <small>Advisory: {pfz.metadata.advisory_date ?? 'Date unavailable'}{pfz.metadata.advisory_dates.length > 1 ? ' (latest; mixed dates)' : ''}</small>}
         {pfz && <small title={pfz.metadata.fetched_at}>Fetched: {new Date(pfz.metadata.fetched_at).toLocaleString('en-IN')}</small>}
-        <button className="nearest-pfz-button" type="button" disabled={!mapPoint || nearestLoading || !pfz}
-          onClick={() => { setNearestOrigin(mapPoint ? [...mapPoint] : null); setPlaying(false) }}>
+        <button className="nearest-pfz-button" type="button" disabled={nearestLoading}
+          onClick={openLocationPicker}>
           {nearestLoading ? 'Finding nearest PFZ…' : 'Find nearest PFZ'}
         </button>
-        <small>{mapPoint ? `From ${mapPoint[1].toFixed(3)}°, ${mapPoint[0].toFixed(3)}°` : 'Click the map or search coordinates first.'}</small>
+        <small>Choose your starting location in the next step.</small>
         {nearestError && <small role="status">{nearestError}</small>}
       </section>
       {layer && <Legend layer={layer} />}
+
+      {locationStep && <section className="location-picker glass" aria-labelledby="location-heading">
+        <button className="location-close" type="button" onClick={cancelLocation} aria-label="Cancel location selection"><X size={17} /></button>
+        <h2 id="location-heading" tabIndex={-1} ref={locationHeading}>Where are you starting from?</h2>
+        <p>Select your current or departure location—not a destination. We’ll find the nearest PFZ from there.</p>
+        <div className="location-actions">
+          <button className="nearest-pfz-button" type="button" disabled={locationStep === 'locating'} onClick={locateDevice}>
+            {locationStep === 'locating' ? 'Finding your location…' : 'Use my current location'}
+          </button>
+          <button className="nearest-pfz-button" type="button" onClick={() => {
+            locationRequest.current += 1; setLocationStep('map'); setLocationError(null); setOriginLocation(null)
+          }}>Choose on map</button>
+        </div>
+        <p role="status">{locationStep === 'map' ? 'Click your starting position anywhere on the map. You can also enter coordinates in the search bar.'
+          : locationStep === 'locating' ? 'Allow the browser’s location request. You can select a map point instead at any time.'
+          : locationStep === 'confirm' ? 'Check the marked position, then confirm below. Click another map point to adjust it.'
+          : 'Use device location, or click your starting point on the map.'}</p>
+        {locationError && <p role="alert" className="location-error">{locationError}</p>}
+        {originLocation && locationStep === 'confirm' && <div className="location-confirm">
+          <strong>{originLocation.source === 'device' ? 'Device-reported location' : 'Selected starting location'}</strong>
+          <p>{originLocation.point[1].toFixed(5)}°, {originLocation.point[0].toFixed(5)}°</p>
+          {originLocation.accuracy !== undefined && <p>Reported accuracy: approximately {Math.round(originLocation.accuracy).toLocaleString()} m.
+            {originLocation.accuracy > 1000 ? ' This is a coarse location—check the marker carefully or select your position manually.' : ' Check the marker before continuing.'}</p>}
+          <button className="nearest-pfz-button" type="button" onClick={() => {
+            setLocationStep(null); setNearestOrigin([...originLocation.point]); setPlaying(false)
+          }}>Find PFZ from this location</button>
+        </div>}
+        <small>Location access is optional. If it is switched off or denied, SafeLink cannot determine your actual location. No continuous tracking.</small>
+      </section>}
 
       {nearest && pfzEnabled && (
         <section className="inspection-card glass nearest-pfz-card" aria-label="Nearest PFZ result">
@@ -417,6 +521,7 @@ export default function App() {
           <div className="inspection-time">Nearest PFZ · INCOIS {nearest.feature.properties.Sno ?? '—'}</div>
           <strong>{nearest.distance_km.toFixed(1)} km {nearest.bearing_degrees === null ? '(at PFZ)' : `${['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(nearest.bearing_degrees / 45) % 8]} · ${nearest.bearing_degrees.toFixed(0)}° true`}</strong>
           <small>From {nearest.origin.lat.toFixed(4)}°, {nearest.origin.lng.toFixed(4)}°</small>
+          {originLocation?.accuracy !== undefined && <small>Device-reported accuracy: approximately {Math.round(originLocation.accuracy).toLocaleString()} m</small>}
           <small>Nearest point: {nearest.point.lat.toFixed(4)}°, {nearest.point.lng.toFixed(4)}°</small>
           <small>Advisory: {nearest.feature.properties.advisory_date ?? 'Unknown'}{nearest.metadata.stale || pfz?.metadata.stale || pfzError ? ' · Cached / stale' : ''}</small>
           <button className="nearest-pfz-button nearest-show-point" type="button" onClick={() => setFocusPoint([nearest.point.lng, nearest.point.lat])}>Show nearest point</button>

@@ -37,6 +37,12 @@ export interface NearestPFZ {
   metadata: PFZResponse['metadata']
 }
 
+export interface OriginLocation {
+  point: [number, number]
+  source: 'device' | 'map' | 'coordinates'
+  accuracy?: number
+}
+
 export interface ConditionSample extends Inspection {
   time: string
   unit: string

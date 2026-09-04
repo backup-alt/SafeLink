@@ -127,13 +127,27 @@ or safety guidance**. PFZ advisories do not guarantee a catch or safe conditions
 
 ### Nearest PFZ
 
-Click a map point (or enter coordinates), then choose **Find nearest PFZ** in
-Overlays. The result shows the nearest advisory feature, nearest point on its
+Choose **Find nearest PFZ** in Overlays first. The location panel asks for your
+**starting/current position, not your destination**. Choose **Use my current
+location** to request browser location permission, or **Choose on map** and click
+your starting point (coordinate search also works). Check the labelled marker,
+then click **Find PFZ from this location**. Device-reported accuracy is shown;
+coarse desktop estimates require particular care. Cancel or press Escape to
+leave selection without calculating a PFZ. No lookup runs before confirmation.
+
+Device location requires HTTPS (localhost also works), browser permission, and
+available operating-system location services. If permission is denied, services
+are off, or the request times out, the panel explains how to retry or select a
+point manually. SafeLink cannot bypass disabled location access and does not
+substitute IP-based guesses for an actual position. Location is requested once
+on user action, not continuously tracked. Confirmed coordinates are sent to the
+SafeLink API to calculate the nearest PFZ and sample its conditions.
+
+The result shows the nearest advisory feature, nearest point on its
 geometry, direct distance in kilometres, and initial bearing clockwise from true
 north. White highlights the selected feature; a white dot marks the origin and a
 gold dot the nearest point. **Show nearest point** centres the map there. Clicking
-another map point closes the result and selects a new origin. No device location
-permission is requested.
+another map point closes the result; use **Find nearest PFZ** to start again.
 
 `GET /api/pfz/nearest?latitude=12.6&longitude=80.4` searches every segment of every
 MultiLineString in the cached INCOIS snapshot, not just vertices or centroids.

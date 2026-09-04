@@ -137,3 +137,13 @@ button { color: inherit; }
 .inspection-card > .nearest-show-point { position: static; display: block; margin-top: 8px; padding: 7px; border: 1px solid #53d9d6; }
 .nearest-pfz-card > small, .nearest-condition small { display: block; margin-top: 5px; color: #b8cbd0; font-size: 11px; }
 .nearest-condition { margin-top: 10px; }
+.location-picker { position: absolute; z-index: 9; top: 80px; left: 20px; width: min(370px, calc(100vw - 40px)); padding: 18px; border-radius: 10px; max-height: calc(100vh - 200px); overflow-y: auto; }
+.location-picker h2 { font-size: 16px; padding-right: 20px; margin: 0 0 10px; color: #64e1dc; }
+.location-picker p { font-size: 12px; line-height: 1.6; margin: 10px 0; }
+.location-picker small { color: #b8cbd0; font-size: 11px; line-height: 1.5; }
+.location-close { position: absolute; right: 9px; top: 9px; border: 0; background: transparent; cursor: pointer; }
+.location-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.location-error { color: #ffd166; }
+.location-confirm { border-top: 1px solid #577078; padding: 12px 0; font-size: 13px; }
+.origin-location-marker { width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; background: #15aaa9; box-shadow: 0 0 0 7px #3adbd342, 0 2px 8px #0008; }
+.origin-location-marker span { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #13262f; color: #edffff; padding: 5px 8px; border-radius: 5px; font: 11px Manrope, sans-serif; }

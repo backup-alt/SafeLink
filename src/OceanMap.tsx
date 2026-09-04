@@ -3,7 +3,7 @@ import * as maplibregl from 'maplibre-gl'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
 import { fieldToDataUrl, isLandAt } from './colors'
-import type { Catalog, FieldData, Inspection, LayerMeta, NearestPFZ, PFZFeature, PFZResponse } from './types'
+import type { Catalog, FieldData, Inspection, LayerMeta, NearestPFZ, OriginLocation, PFZFeature, PFZResponse } from './types'
 
 interface OceanMapProps {
   field: FieldData | null
@@ -15,8 +15,10 @@ interface OceanMapProps {
   pfz: PFZResponse | null
   pfzEnabled: boolean
   onPFZInspect: (feature: PFZFeature | null) => void
-  onMapPoint: (point: [number, number]) => void
+  onMapPoint: (point: [number, number]) => boolean
   nearestPFZ: NearestPFZ | null
+  originLocation: OriginLocation | null
+  pickingLocation: boolean
 }
 
 interface Particle {
@@ -184,12 +186,15 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
   return { lng: minLng, lat: minLat, age: 90 }
 }
 
-function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect, onMapPoint, nearestPFZ }: OceanMapProps) {
+function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect, onMapPoint, nearestPFZ, originLocation, pickingLocation }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const labelCanvasRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
+  const userPositionedRef = useRef(false)
+  const pickingLocationRef = useRef(pickingLocation)
+  pickingLocationRef.current = pickingLocation
   const fieldRef = useRef(field)
   const layerRef = useRef(layer)
   const callbacksRef = useRef({ onInspect, onHover, onPFZInspect, onMapPoint })
@@ -321,12 +326,17 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
       }
       pfzHoverRef.current = id
       if (id !== null) map.setFeatureState({ source: 'pfz', id }, { hover: true })
-      map.getCanvas().style.cursor = id === null ? '' : 'pointer'
+      map.getCanvas().style.cursor = pickingLocationRef.current ? 'crosshair' : id === null ? '' : 'pointer'
     }
     let inspectionSequence = 0
     map.on('click', (event: MapMouseEvent) => {
       const sequence = ++inspectionSequence
-      callbacksRef.current.onMapPoint([((event.lngLat.lng + 180) % 360 + 360) % 360 - 180, event.lngLat.lat])
+      userPositionedRef.current = true
+      if (callbacksRef.current.onMapPoint([((event.lngLat.lng + 180) % 360 + 360) % 360 - 180, event.lngLat.lat])) {
+        callbacksRef.current.onInspect(null)
+        callbacksRef.current.onHover(null)
+        return
+      }
       const advisory = pickPFZ(event)
       callbacksRef.current.onPFZInspect(advisory)
       if (advisory) {
@@ -563,7 +573,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !region) return
+    if (!map || !region || userPositionedRef.current) return
     map.setMaxBounds([
       [region.minimum_longitude - 8, Math.max(-82, region.minimum_latitude - 10)],
       [region.maximum_longitude + 8, Math.min(82, region.maximum_latitude + 10)],
@@ -622,12 +632,33 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
   useEffect(() => {
     const map = mapRef.current
     if (!map || !focusPoint) return
+    userPositionedRef.current = true
+    map.setMaxBounds(null)
     map.flyTo({ center: focusPoint, zoom: Math.max(map.getZoom(), 7), duration: 900 })
     markerRef.current?.remove()
     const element = document.createElement('div')
     element.className = 'coordinate-marker'
     markerRef.current = new maplibregl.Marker({ element }).setLngLat(focusPoint).addTo(map)
   }, [focusPoint])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (map) map.getCanvas().style.cursor = pickingLocation ? 'crosshair' : ''
+  }, [pickingLocation])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !originLocation) return
+    userPositionedRef.current = true
+    markerRef.current?.remove()
+    const element = document.createElement('div')
+    element.className = 'origin-location-marker'
+    const label = document.createElement('span')
+    label.textContent = originLocation.source === 'device' ? 'Your device location' : 'Starting location'
+    element.appendChild(label)
+    const marker = new maplibregl.Marker({ element }).setLngLat(originLocation.point).addTo(map)
+    return () => { marker.remove() }
+  }, [originLocation])
 
   useEffect(() => {
     const canvas = canvasRef.current
