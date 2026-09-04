@@ -1,0 +1,47 @@
+name: Refresh Copernicus cloud data
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Republish today's run
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 */6 * * *"
+
+concurrency:
+  group: copernicus-cloud-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Download, convert, and publish fresh data
+        env:
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+          SAFELINK_OBJECT_STORAGE_ENDPOINT: ${{ secrets.SAFELINK_OBJECT_STORAGE_ENDPOINT }}
+          SAFELINK_OBJECT_STORAGE_REGION: ${{ secrets.SAFELINK_OBJECT_STORAGE_REGION }}
+          SAFELINK_OBJECT_STORAGE_BUCKET: ${{ secrets.SAFELINK_OBJECT_STORAGE_BUCKET }}
+          SAFELINK_OBJECT_STORAGE_ACCESS_KEY: ${{ secrets.SAFELINK_OBJECT_STORAGE_ACCESS_KEY }}
+          SAFELINK_OBJECT_STORAGE_SECRET_KEY: ${{ secrets.SAFELINK_OBJECT_STORAGE_SECRET_KEY }}
+          SAFELINK_OBJECT_STORAGE_PREFIX: safelink
+          SAFELINK_FORCE_INGEST: ${{ inputs.force || 'false' }}
+        run: |
+          if [[ -z "$COPERNICUSMARINE_SERVICE_USERNAME" || -z "$COPERNICUSMARINE_SERVICE_PASSWORD" || -z "$SAFELINK_OBJECT_STORAGE_ENDPOINT" || -z "$SAFELINK_OBJECT_STORAGE_REGION" || -z "$SAFELINK_OBJECT_STORAGE_BUCKET" || -z "$SAFELINK_OBJECT_STORAGE_ACCESS_KEY" || -z "$SAFELINK_OBJECT_STORAGE_SECRET_KEY" ]]; then
+            echo "SafeLink cloud secrets are not configured yet; skipping refresh."
+            exit 0
+          fi
+          python -m backend.cloud_ingest

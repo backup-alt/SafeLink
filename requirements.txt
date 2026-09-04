@@ -1,4 +1,5 @@
 copernicusmarine==2.4.1
+boto3==1.43.87
 fastapi==0.141.1
 h5netcdf==1.8.1
 h5py==3.16.0

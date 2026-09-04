@@ -125,25 +125,79 @@ On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` 
 
 ## Deploy on Railway
 
-SafeLink includes a production `Dockerfile` and `railway.json`. The same Railway service hosts both the API and the built web interface.
+SafeLink supports a free-tier-oriented hybrid deployment:
 
-1. Create a Railway project from this GitHub repository.
-2. Add a persistent volume and mount it at `/data`. Without this volume, downloaded Copernicus files disappear whenever the container is replaced.
-3. Add these service variables in Railway:
+```text
+Copernicus Marine -> GitHub Actions -> Oracle Object Storage
+                                                |
+Browser ------------> Railway API <-------------+
+```
+
+GitHub Actions checks for fresh Copernicus data every six hours. It publishes at most one normal run per UTC day, stores seven daily runs, and writes the manifest only after every layer is uploaded successfully. Railway reads only the requested compressed frame into memory, so the full NetCDF archive is never stored on Railway.
+
+### 1. Create Oracle Object Storage
+
+1. Create or sign in to an Oracle Cloud account and select the home region.
+2. In **Object Storage & Archive Storage**, create a private Standard-tier bucket such as `safelink-data`.
+3. Record the region identifier and Object Storage namespace. The namespace is shown in the tenancy details.
+4. In your OCI user settings, generate a **Customer Secret Key** for the S3-compatible API. Copy both the generated access key and secret key; the secret is shown only once.
+5. Build the endpoint using this format:
 
    ```text
-   COPERNICUSMARINE_SERVICE_USERNAME=your-copernicus-username
-   COPERNICUSMARINE_SERVICE_PASSWORD=your-copernicus-password
-   SAFELINK_AUTO_REFRESH=true
-   SAFELINK_DATA_DIR=/data
+   https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
    ```
 
-4. Deploy the `main` branch and generate a public Railway domain for the service.
-5. Open `/api/health` on that domain and confirm it returns `{"status":"ok"}`.
+For better isolation, create a dedicated OCI user and policy that only permits object operations on the SafeLink bucket.
 
-Do not add Copernicus credentials to GitHub or commit them to a file. Railway injects the variables only at runtime. The first deployment can remain healthy while the initial dataset downloads in the background; map layers appear as each product finishes.
+### 2. Configure the scheduled GitHub publisher
 
-Because the five Indian Ocean products use substantial storage, network transfer, memory, and CPU, select a Railway plan and volume large enough for the workload. Keep at least several gigabytes free to accommodate temporary downloads alongside retained data.
+In the GitHub repository, open **Settings -> Secrets and variables -> Actions** and create these repository secrets:
+
+```text
+COPERNICUSMARINE_SERVICE_USERNAME
+COPERNICUSMARINE_SERVICE_PASSWORD
+SAFELINK_OBJECT_STORAGE_ENDPOINT
+SAFELINK_OBJECT_STORAGE_REGION
+SAFELINK_OBJECT_STORAGE_BUCKET
+SAFELINK_OBJECT_STORAGE_ACCESS_KEY
+SAFELINK_OBJECT_STORAGE_SECRET_KEY
+```
+
+The endpoint, region, bucket, access key, and secret key are the Oracle values from the previous step. Keep the bucket private.
+
+Open **Actions -> Refresh Copernicus cloud data -> Run workflow** to publish the first run. The initial execution downloads and converts all five products and may take a significant amount of time. Later scheduled checks skip publication when the current UTC day's run already exists. Select the `force` option during a manual run only when today's data must be rebuilt.
+
+### 3. Configure Railway as the reader
+
+Add these variables to the Railway SafeLink service:
+
+```text
+SAFELINK_AUTO_REFRESH=false
+SAFELINK_OBJECT_STORAGE_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
+SAFELINK_OBJECT_STORAGE_REGION=<region>
+SAFELINK_OBJECT_STORAGE_BUCKET=safelink-data
+SAFELINK_OBJECT_STORAGE_ACCESS_KEY=<oracle-access-key>
+SAFELINK_OBJECT_STORAGE_SECRET_KEY=<oracle-secret-key>
+SAFELINK_OBJECT_STORAGE_PREFIX=safelink
+```
+
+Railway does not need the Copernicus username or password. Those credentials belong only in GitHub Actions, where ingestion runs. After setting the variables, redeploy the Railway service.
+
+Verify the deployment:
+
+```text
+https://<railway-domain>/api/health
+https://<railway-domain>/api/catalog
+```
+
+The health endpoint should return `{"status":"ok"}`. In the catalog response, all five layers should have `"available": true` after the first publisher workflow finishes.
+
+### Cloud-data security
+
+- Never commit Copernicus or Oracle credentials.
+- Keep the Oracle bucket private; Railway and GitHub access it through environment secrets.
+- Rotate the Oracle Customer Secret Key if it is accidentally displayed or committed.
+- Use separate read-only Railway and write-enabled GitHub credentials when configuring a production OCI tenancy.
 
 ## Troubleshooting
 

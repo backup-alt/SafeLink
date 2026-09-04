@@ -18,11 +18,13 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 
 from .data_service import DataRepository
+from .cloud_repository import CloudDataRepository
 from .refresh import STATE, refresh_loop
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.getenv("SAFELINK_DATA_DIR", ROOT / "copernicus_data"))
-repository = DataRepository(DATA_DIR)
+CLOUD_MODE = bool(os.getenv("SAFELINK_OBJECT_STORAGE_BUCKET"))
+repository = CloudDataRepository() if CLOUD_MODE else DataRepository(DATA_DIR)
 
 
 @lru_cache(maxsize=1024)
@@ -91,11 +93,12 @@ def _validate_tile(z: int, x: int, y: int) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    task = asyncio.create_task(refresh_loop(DATA_DIR))
+    task = None if CLOUD_MODE else asyncio.create_task(refresh_loop(DATA_DIR))
     yield
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+    if task is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="SafeLink Ocean API", version="0.1.0", lifespan=lifespan)
