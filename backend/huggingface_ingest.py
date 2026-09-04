@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
+from typing import Callable, TypeVar
 
 from huggingface_hub import (
     CommitOperationAdd,
@@ -19,6 +21,20 @@ import xarray as xr
 from .cloud_ingest import _display_arrays, _iso, _safe_time
 from .config import LAYERS
 from .refresh import DATASETS, REFRESH_LOCK, STATE, download_dataset_window
+
+T = TypeVar("T")
+
+
+def _retry(operation: Callable[[], T], attempts: int = 5) -> T:
+    """Retry transient Hub/network failures without losing the ingestion run."""
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(min(2 ** attempt, 8))
+    raise RuntimeError("unreachable")
 
 
 def _remote_path(prefix: str, name: str) -> str:
@@ -54,15 +70,18 @@ def _publish_manifest(
         "complete": complete,
         "layers": layers,
     }
-    api.upload_file(
-        repo_id=repo_id,
-        repo_type="dataset",
-        path_in_repo=manifest_path,
-        path_or_fileobj=BytesIO(json.dumps(manifest, separators=(",", ":")).encode()),
-        commit_message=(
-            f"Complete SafeLink data run {run_id}"
-            if complete else f"Checkpoint SafeLink data run {run_id}"
-        ),
+    payload = json.dumps(manifest, separators=(",", ":")).encode()
+    _retry(
+        lambda: api.upload_file(
+            repo_id=repo_id,
+            repo_type="dataset",
+            path_in_repo=manifest_path,
+            path_or_fileobj=BytesIO(payload),
+            commit_message=(
+                f"Complete SafeLink data run {run_id}"
+                if complete else f"Checkpoint SafeLink data run {run_id}"
+            ),
+        )
     )
 
 
@@ -103,11 +122,14 @@ def _upload_layer(
     def flush() -> None:
         if not operations:
             return
-        api.create_commit(
-            repo_id=repo_id,
-            repo_type="dataset",
-            operations=list(operations),
-            commit_message=f"Publish {layer_id} frames for {run_id}",
+        pending = list(operations)
+        _retry(
+            lambda: api.create_commit(
+                repo_id=repo_id,
+                repo_type="dataset",
+                operations=pending,
+                commit_message=f"Publish {layer_id} frames for {run_id}",
+            )
         )
         operations.clear()
         for local_file in local_files:
