@@ -11,6 +11,9 @@ function hexToRgb(hex: string): [number, number, number] {
 
 let landMaskPromise: Promise<HTMLImageElement> | null = null
 let landMaskContext: CanvasRenderingContext2D | null = null
+let landMaskPixels: Uint8ClampedArray | null = null
+let landMaskWidth = 0
+let landMaskHeight = 0
 
 function loadLandMask(): Promise<HTMLImageElement> {
   if (!landMaskPromise) {
@@ -22,6 +25,11 @@ function loadLandMask(): Promise<HTMLImageElement> {
         canvas.height = image.naturalHeight
         landMaskContext = canvas.getContext('2d', { willReadFrequently: true })
         landMaskContext?.drawImage(image, 0, 0)
+        if (landMaskContext) {
+          landMaskWidth = canvas.width
+          landMaskHeight = canvas.height
+          landMaskPixels = landMaskContext.getImageData(0, 0, canvas.width, canvas.height).data
+        }
         resolve(image)
       }
       image.onerror = () => reject(new Error('Could not load the coastline mask'))
@@ -32,16 +40,16 @@ function loadLandMask(): Promise<HTMLImageElement> {
 }
 
 export function isLandAt(longitude: number, latitude: number): boolean {
-  if (!landMaskContext || longitude < 20 || longitude > 120 || latitude < -60 || latitude > 30) return false
+  if (!landMaskPixels || longitude < 20 || longitude > 120 || latitude < -60 || latitude > 30) return false
   const radians = latitude * Math.PI / 180
   const y = .5 - Math.log((1 + Math.sin(radians)) / (1 - Math.sin(radians))) / (4 * Math.PI)
   const northRadians = 30 * Math.PI / 180
   const southRadians = -60 * Math.PI / 180
   const top = .5 - Math.log((1 + Math.sin(northRadians)) / (1 - Math.sin(northRadians))) / (4 * Math.PI)
   const bottom = .5 - Math.log((1 + Math.sin(southRadians)) / (1 - Math.sin(southRadians))) / (4 * Math.PI)
-  const xPixel = Math.max(0, Math.min(4095, Math.round((longitude - 20) / 100 * 4095)))
-  const yPixel = Math.max(0, Math.min(4095, Math.round((y - top) / (bottom - top) * 4095)))
-  return landMaskContext.getImageData(xPixel, yPixel, 1, 1).data[3] > 127
+  const xPixel = Math.max(0, Math.min(landMaskWidth - 1, Math.round((longitude - 20) / 100 * (landMaskWidth - 1))))
+  const yPixel = Math.max(0, Math.min(landMaskHeight - 1, Math.round((y - top) / (bottom - top) * (landMaskHeight - 1))))
+  return landMaskPixels[(yPixel * landMaskWidth + xPixel) * 4 + 3] > 127
 }
 
 export function colorAt(
@@ -85,7 +93,9 @@ export async function fieldToDataUrl(
   const northEdge = Math.min(85, latitudes[sourceHeight - 1] + latitudeStep / 2)
   const westEdge = longitudes[0] - longitudeStep / 2
   const eastEdge = longitudes[sourceWidth - 1] + longitudeStep / 2
-  const renderWidth = sourceHeight > 500 ? 4096 : 2048
+  // MapLibre performs the final GPU interpolation. Rendering near the source
+  // resolution avoids blocking the UI with a multi-million-pixel CPU loop.
+  const renderWidth = Math.min(1024, Math.max(640, sourceWidth * 3))
   const canvas = document.createElement('canvas')
   const mercatorY = (latitude: number) => {
     const radians = latitude * Math.PI / 180
@@ -120,6 +130,10 @@ export async function fieldToDataUrl(
     for (let targetX = 0; targetX < renderWidth; targetX += 1) {
       const offset = (targetY * renderWidth + targetX) * 4
       const longitude = westEdge + ((targetX + .5) / renderWidth) * (eastEdge - westEdge)
+      if (isLandAt(longitude, latitude)) {
+        image.data[offset + 3] = 0
+        continue
+      }
       const sourcePositionX = sourceWidth > 1
         ? Math.max(0, Math.min(sourceWidth - 1, (longitude - longitudes[0]) / (longitudes[sourceWidth - 1] - longitudes[0]) * (sourceWidth - 1)))
         : 0

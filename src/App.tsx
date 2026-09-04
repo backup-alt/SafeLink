@@ -1,9 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
-import { fetchCatalog, fetchField } from './api'
+import { fetchCatalog, fetchField, prefetchField } from './api'
 import OceanMap from './OceanMap'
 import type { Catalog, FieldData, Inspection, LayerId, LayerMeta } from './types'
 
@@ -142,12 +142,15 @@ function Timeline({ times, index, playing, onIndex, onPlaying }: {
 }) {
   const current = times[index]
   const dayLabels = useMemo(() => {
-    const unique = new Map<string, string>()
-    times.forEach((time) => {
+    const unique = new Map<string, { label: string; position: number }>()
+    times.forEach((time, timeIndex) => {
       const key = new Date(time).toDateString()
-      if (!unique.has(key)) unique.set(key, formatTime(time).split(',')[0])
+      if (!unique.has(key)) unique.set(key, {
+        label: formatTime(time).split(',')[0],
+        position: times.length > 1 ? timeIndex / (times.length - 1) * 100 : 0,
+      })
     })
-    return Array.from(unique.values()).slice(0, 6)
+    return Array.from(unique.values())
   }, [times])
   return (
     <div className="timeline glass">
@@ -157,7 +160,9 @@ function Timeline({ times, index, playing, onIndex, onPlaying }: {
       <div className="timeline-main">
         <div className="timeline-top">
           <strong>{current ? formatTime(current) : 'No timeline'}</strong>
-          <div className="day-labels">{dayLabels.map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="day-labels">{dayLabels.map((day) => (
+            <span key={`${day.label}-${day.position}`} style={{ left: `${day.position}%` }}>{day.label}</span>
+          ))}</div>
         </div>
         <div className="range-row">
           <button type="button" onClick={() => onIndex(Math.max(0, index - 1))}><ChevronLeft size={18} /></button>
@@ -190,6 +195,9 @@ export default function App() {
   const [searchError, setSearchError] = useState(false)
   const [focusPoint, setFocusPoint] = useState<[number, number] | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
+  const updateHover = useCallback((value: Inspection | null, point?: { x: number; y: number }) => {
+    setHover(value && point ? { inspection: value, x: point.x, y: point.y } : null)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -221,32 +229,49 @@ export default function App() {
 
   const layer = catalog?.layers.find((item) => item.id === selectedLayer) ?? null
   const times = layer?.times ?? []
+  const selectedTime = times[timeIndex]
 
   useEffect(() => {
-    if (!layer || !times[timeIndex]) return
+    if (!layer || !selectedTime) return
     const controller = new AbortController()
+    const delay = window.setTimeout(() => {
     setLoading(true)
     setError(null)
-    fetchField(selectedLayer, times[timeIndex], controller.signal)
-      .then(setField)
+    fetchField(selectedLayer, selectedTime, controller.signal)
+      .then((nextField) => {
+        setField(nextField)
+        const nextIndex = (timeIndex + 1) % times.length
+        if (times.length > 1) prefetchField(selectedLayer, times[nextIndex])
+      })
       .catch((reason: Error) => {
         if (reason.name !== 'AbortError') setError(reason.message)
       })
-      .finally(() => setLoading(false))
-    return () => controller.abort()
-  }, [layer, selectedLayer, timeIndex, times])
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    }, 90)
+    return () => {
+      window.clearTimeout(delay)
+      controller.abort()
+    }
+  }, [layer?.id, layer?.updated_at, selectedLayer, selectedTime, timeIndex, times.length])
 
   useEffect(() => {
-    if (!playing || times.length < 2) return
-    const timer = window.setInterval(() => setTimeIndex((value) => (value + 1) % times.length), 850)
-    return () => window.clearInterval(timer)
-  }, [playing, times.length])
+    if (!playing || loading || times.length < 2 || field?.time !== selectedTime) return
+    const timer = window.setTimeout(
+      () => setTimeIndex((value) => (value + 1) % times.length),
+      1100,
+    )
+    return () => window.clearTimeout(timer)
+  }, [playing, loading, field?.time, selectedTime, times.length])
 
   const chooseLayer = (id: LayerId) => {
     const next = catalog?.layers.find((candidate) => candidate.id === id)
     setSelectedLayer(id)
     setTimeIndex(nearestTimeIndex(next?.times ?? []))
     setInspection(null)
+    setHover(null)
+    setField(null)
     setPlaying(false)
   }
 
@@ -265,7 +290,7 @@ export default function App() {
         region={catalog?.region ?? null}
         focusPoint={focusPoint}
         onInspect={setInspection}
-        onHover={(value, point) => setHover(value && point ? { inspection: value, x: point.x, y: point.y } : null)}
+        onHover={updateHover}
       />
 
       <header className="topbar glass">

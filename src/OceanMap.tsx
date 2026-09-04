@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
 import { fieldToDataUrl, isLandAt } from './colors'
@@ -121,7 +121,7 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
   return { lng: minLng, lat: minLat, age: 90 }
 }
 
-export default function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: OceanMapProps) {
+function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -239,25 +239,6 @@ export default function OceanMap({ field, layer, region, focusPoint, onInspect, 
           source: 'ocean-field',
           paint: { 'raster-opacity': 1, 'raster-fade-duration': 320, 'raster-resampling': 'linear' },
         })
-        map.addSource('safelink-land-detail', {
-          type: 'raster',
-          tiles: ['/api/land-tile/{z}/{x}/{y}.png'],
-          tileSize: 256,
-        })
-        map.addLayer({
-          id: 'safelink-land-detail',
-          type: 'raster',
-          source: 'safelink-land-detail',
-          paint: {
-            'raster-opacity': 1,
-            'raster-fade-duration': 0,
-            'raster-resampling': 'nearest',
-            'raster-saturation': -0.78,
-            'raster-contrast': 0.08,
-            'raster-brightness-min': 0.1,
-            'raster-brightness-max': 0.54,
-          },
-        })
       }
     }
     if (map.isStyleLoaded()) void apply()
@@ -286,7 +267,7 @@ export default function OceanMap({ field, layer, region, focusPoint, onInspect, 
 
     const seedParticles = () => {
       const rect = canvas.getBoundingClientRect()
-      const count = Math.min(1200, Math.max(500, Math.round(rect.width * rect.height / 1200)))
+      const count = Math.min(650, Math.max(260, Math.round(rect.width * rect.height / 2600)))
       particles = Array.from({ length: count }, () => randomParticle(field, map))
     }
 
@@ -305,6 +286,10 @@ export default function OceanMap({ field, layer, region, focusPoint, onInspect, 
 
     let previous = performance.now()
     const draw = (now: number) => {
+      if (now - previous < 30) {
+        animationFrame = requestAnimationFrame(draw)
+        return
+      }
       const delta = Math.min(2, (now - previous) / 16.67)
       previous = now
       const rect = canvas.getBoundingClientRect()
@@ -353,3 +338,5 @@ export default function OceanMap({ field, layer, region, focusPoint, onInspect, 
     </div>
   )
 }
+
+export default memo(OceanMap)
