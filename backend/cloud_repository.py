@@ -52,7 +52,9 @@ class CloudDataRepository:
 
     def _manifest(self) -> dict[str, Any]:
         with self._lock:
-            if self._manifest_value is not None and monotonic() - self._manifest_loaded_at < 300:
+            # Ingestion publishes progressive checkpoints; keep this short so a
+            # newly available layer appears promptly without restarting Railway.
+            if self._manifest_value is not None and monotonic() - self._manifest_loaded_at < 30:
                 return self._manifest_value
         try:
             value = json.loads(self._get_bytes(self._key("manifest.json")))
