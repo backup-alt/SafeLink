@@ -33,7 +33,7 @@ class CloudDataRepository:
 
     def __init__(self, client=None, bucket: str | None = None, prefix: str | None = None):
         self.client = client or object_storage_client()
-        self.bucket = bucket or os.environ["SAFELINK_OBJECT_STORAGE_BUCKET"]
+        self.bucket = bucket if bucket is not None else os.environ["SAFELINK_OBJECT_STORAGE_BUCKET"]
         configured_prefix = prefix if prefix is not None else os.getenv("SAFELINK_OBJECT_STORAGE_PREFIX", "safelink")
         self.prefix = configured_prefix.strip("/")
         self._manifest_value: dict[str, Any] | None = None
