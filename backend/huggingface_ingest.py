@@ -18,7 +18,7 @@ import xarray as xr
 
 from .cloud_ingest import _display_arrays, _iso, _safe_time
 from .config import LAYERS
-from .refresh import DATASETS, REFRESH_LOCK, STATE, download_dataset
+from .refresh import DATASETS, REFRESH_LOCK, STATE, download_dataset_window
 
 
 def _remote_path(prefix: str, name: str) -> str:
@@ -131,18 +131,37 @@ def publish() -> bool:
         with tempfile.TemporaryDirectory(prefix="safelink-hf-") as temporary:
             working_dir = Path(temporary)
             for layer_id, config in LAYERS.items():
-                dataset_id, variables, has_depth = dataset_by_prefix[config.prefix.rstrip("_")]
-                path = download_dataset(
-                    working_dir,
-                    config.prefix.rstrip("_"),
-                    dataset_id,
-                    variables,
-                    has_depth,
-                )
+                product_prefix = config.prefix.rstrip("_")
+                dataset_id, variables, has_depth = dataset_by_prefix[product_prefix]
                 layer_output = working_dir / f"frames-{layer_id}"
                 layer_output.mkdir()
-                frames = _upload_layer(api, repo_id, prefix, run_id, layer_id, path, layer_output)
-                path.unlink(missing_ok=True)
+                frames = []
+                today = datetime.now(timezone.utc).date()
+                if product_prefix == "chlorophyll":
+                    first_day, last_day = today - timedelta(days=10), today - timedelta(days=2)
+                else:
+                    first_day, last_day = today, today + timedelta(days=9)
+                day = first_day
+                while day <= last_day:
+                    path = download_dataset_window(
+                        working_dir,
+                        product_prefix,
+                        dataset_id,
+                        variables,
+                        has_depth,
+                        day,
+                        day,
+                    )
+                    try:
+                        frames.extend(
+                            _upload_layer(api, repo_id, prefix, run_id, layer_id, path, layer_output)
+                        )
+                    finally:
+                        path.unlink(missing_ok=True)
+                    day += timedelta(days=1)
+                if not frames:
+                    raise RuntimeError(f"No frames were produced for {layer_id}")
+                frames.sort(key=lambda frame: frame["time"])
                 layers.append({
                     "id": layer_id,
                     "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

@@ -65,15 +65,34 @@ def download_dataset(
     has_depth: bool,
 ) -> Path:
     """Download one product and return its completed NetCDF path."""
-    data_dir.mkdir(parents=True, exist_ok=True)
     today = _utc_now().date()
     forecast_end = today + timedelta(days=9)
     is_observation = prefix == "chlorophyll"
     start_date = today - timedelta(days=10) if is_observation else today
     end_date = today - timedelta(days=2) if is_observation else forecast_end
     filename_date = end_date if is_observation else today
-    final_path = data_dir / f"{prefix}_{filename_date.isoformat()}.nc"
-    temporary_path = data_dir / f".{prefix}_{filename_date.isoformat()}.part.nc"
+    return download_dataset_window(
+        data_dir, prefix, dataset_id, variables, has_depth, start_date, end_date,
+        filename=f"{prefix}_{filename_date.isoformat()}.nc",
+    )
+
+
+def download_dataset_window(
+    data_dir: Path,
+    prefix: str,
+    dataset_id: str,
+    variables: list[str],
+    has_depth: bool,
+    start_date,
+    end_date,
+    *,
+    filename: str | None = None,
+) -> Path:
+    """Download a bounded product window to limit peak disk and memory usage."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    filename = filename or f"{prefix}_{start_date.isoformat()}_{end_date.isoformat()}.nc"
+    final_path = data_dir / filename
+    temporary_path = data_dir / f".{filename}.part.nc"
     request = {
         "dataset_id": dataset_id,
         "variables": variables,
