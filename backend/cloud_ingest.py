@@ -34,7 +34,10 @@ def _surface(variable: xr.DataArray, time_index: int) -> np.ndarray:
 
 
 def _display_arrays(dataset: xr.Dataset, config: LayerConfig, layer_id: str, time_index: int) -> dict[str, np.ndarray]:
-    sample_limit = 600 if config.vector else (900 if layer_id == "chlorophyll" else 560)
+    # A browser cannot usefully render the native million-cell basin grid. Keep a
+    # dense, uniform display/inspection grid and avoid embedding a duplicate native
+    # copy in every timestamp (which made each HF upload several megabytes larger).
+    sample_limit = 360 if config.vector else (600 if layer_id == "chlorophyll" else 420)
     latitude_step = max(1, int(np.ceil(dataset.sizes["latitude"] / sample_limit)))
     longitude_step = max(1, int(np.ceil(dataset.sizes["longitude"] / sample_limit)))
     raw = {name: _surface(dataset[name], time_index) for name in config.variables}
@@ -63,10 +66,10 @@ def _display_arrays(dataset: xr.Dataset, config: LayerConfig, layer_id: str, tim
     return {
         "latitudes": np.asarray(dataset.latitude.values[::latitude_step], dtype=np.float32),
         "longitudes": np.asarray(dataset.longitude.values[::longitude_step], dtype=np.float32),
-        "native_latitudes": np.asarray(dataset.latitude.values, dtype=np.float32),
-        "native_longitudes": np.asarray(dataset.longitude.values, dtype=np.float32),
+        "native_latitudes": np.asarray(dataset.latitude.values[::latitude_step], dtype=np.float32),
+        "native_longitudes": np.asarray(dataset.longitude.values[::longitude_step], dtype=np.float32),
         **{key: np.asarray(value, dtype=np.float32) for key, value in display.items()},
-        **{f"native_{key}": value for key, value in raw.items()},
+        **{f"native_{key}": value[::latitude_step, ::longitude_step] for key, value in raw.items()},
     }
 
 
