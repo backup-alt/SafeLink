@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef } from 'react'
 import * as maplibregl from 'maplibre-gl'
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
 import { fieldToDataUrl, isLandAt } from './colors'
 import type { Catalog, FieldData, Inspection, LayerMeta } from './types'
@@ -19,6 +20,8 @@ interface Particle {
   age: number
 }
 
+maplibregl.setWorkerUrl(maplibreWorkerUrl)
+
 const BASE_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -26,11 +29,6 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       type: 'geojson',
       data: '/indian-ocean-land.geojson',
       attribution: 'Ocean data © Copernicus Marine · boundaries © Natural Earth',
-    },
-    'safelink-land-mask': {
-      type: 'image',
-      url: '/indian-ocean-land-overlay.png',
-      coordinates: [[20, 30], [120, 30], [120, -60], [20, -60]],
     },
   },
   layers: [
@@ -40,13 +38,12 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       paint: { 'background-color': '#123b4b' },
     },
     {
-      id: 'safelink-land-mask',
-      type: 'raster',
-      source: 'safelink-land-mask',
+      id: 'safelink-land-fill',
+      type: 'fill',
+      source: 'safelink-land',
       paint: {
-        'raster-opacity': 1,
-        'raster-fade-duration': 0,
-        'raster-resampling': 'linear',
+        'fill-color': '#3c4446',
+        'fill-opacity': 1,
       },
     },
     {
@@ -267,7 +264,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
           type: 'raster',
           source: 'ocean-field',
           paint: { 'raster-opacity': 1, 'raster-fade-duration': 180, 'raster-resampling': 'linear' },
-        }, 'safelink-land-mask')
+        }, 'safelink-land-fill')
       }
     }
     if (map.isStyleLoaded()) void apply()

@@ -1,4 +1,25 @@
 const rgbCache = new Map<string, [number, number, number]>()
+let renderer: Worker | null = null
+let renderSequence = 0
+const renderPending = new Map<number, { resolve: (url: string) => void; reject: (error: Error) => void }>()
+
+function renderInWorker(payload: object): Promise<string> {
+  if (!renderer) {
+    renderer = new Worker(new URL('./fieldRenderer.worker.ts', import.meta.url), { type: 'module' })
+    renderer.onmessage = (event: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
+      const pending = renderPending.get(event.data.id)
+      if (!pending) return
+      renderPending.delete(event.data.id)
+      if (event.data.error || !event.data.blob) pending.reject(new Error(event.data.error ?? 'Field rendering failed'))
+      else pending.resolve(URL.createObjectURL(event.data.blob))
+    }
+  }
+  const id = ++renderSequence
+  return new Promise((resolve, reject) => {
+    renderPending.set(id, { resolve, reject })
+    renderer!.postMessage({ id, ...payload })
+  })
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const cached = rgbCache.get(hex)
@@ -87,6 +108,10 @@ export async function fieldToDataUrl(
   const sourceHeight = values.length
   const sourceWidth = values[0]?.length ?? 0
   if (!sourceWidth || !sourceHeight) return ''
+  if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
+    void loadLandMask()
+    return renderInWorker({ values, latitudes, longitudes, domain, palette, logarithmic })
+  }
   const latitudeStep = sourceHeight > 1 ? Math.abs(latitudes[1] - latitudes[0]) : 0
   const longitudeStep = sourceWidth > 1 ? Math.abs(longitudes[1] - longitudes[0]) : 0
   const southEdge = Math.max(-85, latitudes[0] - latitudeStep / 2)
@@ -95,7 +120,7 @@ export async function fieldToDataUrl(
   const eastEdge = longitudes[sourceWidth - 1] + longitudeStep / 2
   // MapLibre performs the final GPU interpolation. Rendering near the source
   // resolution avoids blocking the UI with a multi-million-pixel CPU loop.
-  const renderWidth = Math.min(1024, Math.max(720, sourceWidth * 3))
+  const renderWidth = Math.min(1536, Math.max(768, sourceWidth * 4))
   const canvas = document.createElement('canvas')
   const mercatorY = (latitude: number) => {
     const radians = latitude * Math.PI / 180
@@ -130,10 +155,8 @@ export async function fieldToDataUrl(
     for (let targetX = 0; targetX < renderWidth; targetX += 1) {
       const offset = (targetY * renderWidth + targetX) * 4
       const longitude = westEdge + ((targetX + .5) / renderWidth) * (eastEdge - westEdge)
-      // The opaque land overlay covers these pixels. Fill them immediately so
-      // null-value coastal searches only run over actual water cells.
       if (isLandAt(longitude, latitude)) {
-        image.data.set(colorAt(domain[0], domain, palette, logarithmic), offset)
+        image.data[offset + 3] = 0
         continue
       }
       const sourcePositionX = sourceWidth > 1
