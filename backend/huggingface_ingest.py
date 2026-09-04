@@ -25,7 +25,7 @@ def _remote_path(prefix: str, name: str) -> str:
     return f"{prefix}/{name}" if prefix else name
 
 
-def _existing_run(repo_id: str, token: str, manifest_path: str) -> str | None:
+def _existing_manifest(repo_id: str, token: str, manifest_path: str) -> dict | None:
     try:
         local_path = hf_hub_download(
             repo_id=repo_id,
@@ -33,9 +33,37 @@ def _existing_run(repo_id: str, token: str, manifest_path: str) -> str | None:
             repo_type="dataset",
             token=token,
         )
-        return json.loads(Path(local_path).read_text(encoding="utf-8")).get("run_id")
+        return json.loads(Path(local_path).read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _publish_manifest(
+    api: HfApi,
+    repo_id: str,
+    manifest_path: str,
+    run_id: str,
+    layers: list[dict],
+    *,
+    complete: bool,
+) -> None:
+    manifest = {
+        "version": 1,
+        "run_id": run_id,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "complete": complete,
+        "layers": layers,
+    }
+    api.upload_file(
+        repo_id=repo_id,
+        repo_type="dataset",
+        path_in_repo=manifest_path,
+        path_or_fileobj=BytesIO(json.dumps(manifest, separators=(",", ":")).encode()),
+        commit_message=(
+            f"Complete SafeLink data run {run_id}"
+            if complete else f"Checkpoint SafeLink data run {run_id}"
+        ),
+    )
 
 
 def _delete_expired_runs(api: HfApi, repo_id: str, prefix: str, run_id: str, keep_days: int = 7) -> None:
@@ -121,7 +149,8 @@ def publish() -> bool:
         run_id = datetime.now(timezone.utc).date().isoformat()
         manifest_path = _remote_path(prefix, "manifest.json")
         if os.getenv("SAFELINK_FORCE_INGEST", "false").lower() not in {"1", "true", "yes"}:
-            if _existing_run(repo_id, token, manifest_path) == run_id:
+            existing = _existing_manifest(repo_id, token, manifest_path)
+            if existing and existing.get("run_id") == run_id and existing.get("complete") is True:
                 STATE.last_completed = datetime.now(timezone.utc).isoformat()
                 return False
 
@@ -136,6 +165,12 @@ def publish() -> bool:
                 layer_output = working_dir / f"frames-{layer_id}"
                 layer_output.mkdir()
                 frames = []
+                layer_manifest = {
+                    "id": layer_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "frames": frames,
+                }
+                layers.append(layer_manifest)
                 today = datetime.now(timezone.utc).date()
                 if product_prefix == "chlorophyll":
                     first_day, last_day = today - timedelta(days=10), today - timedelta(days=2)
@@ -159,28 +194,16 @@ def publish() -> bool:
                     finally:
                         path.unlink(missing_ok=True)
                     day += timedelta(days=1)
+                    frames.sort(key=lambda frame: frame["time"])
+                    layer_manifest["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                    _publish_manifest(
+                        api, repo_id, manifest_path, run_id, layers, complete=False
+                    )
                 if not frames:
                     raise RuntimeError(f"No frames were produced for {layer_id}")
                 frames.sort(key=lambda frame: frame["time"])
-                layers.append({
-                    "id": layer_id,
-                    "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                    "frames": frames,
-                })
 
-        manifest = {
-            "version": 1,
-            "run_id": run_id,
-            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "layers": layers,
-        }
-        api.upload_file(
-            repo_id=repo_id,
-            repo_type="dataset",
-            path_in_repo=manifest_path,
-            path_or_fileobj=BytesIO(json.dumps(manifest, separators=(",", ":")).encode()),
-            commit_message=f"Publish SafeLink manifest for {run_id}",
-        )
+        _publish_manifest(api, repo_id, manifest_path, run_id, layers, complete=True)
         _delete_expired_runs(api, repo_id, prefix, run_id)
         if os.getenv("SAFELINK_HF_SQUASH_HISTORY", "true").lower() in {"1", "true", "yes"}:
             api.super_squash_history(
