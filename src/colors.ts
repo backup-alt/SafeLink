@@ -130,6 +130,12 @@ export async function fieldToDataUrl(
     for (let targetX = 0; targetX < renderWidth; targetX += 1) {
       const offset = (targetY * renderWidth + targetX) * 4
       const longitude = westEdge + ((targetX + .5) / renderWidth) * (eastEdge - westEdge)
+      // The opaque land overlay covers these pixels. Fill them immediately so
+      // null-value coastal searches only run over actual water cells.
+      if (isLandAt(longitude, latitude)) {
+        image.data.set(colorAt(domain[0], domain, palette, logarithmic), offset)
+        continue
+      }
       const sourcePositionX = sourceWidth > 1
         ? Math.max(0, Math.min(sourceWidth - 1, (longitude - longitudes[0]) / (longitudes[sourceWidth - 1] - longitudes[0]) * (sourceWidth - 1)))
         : 0
