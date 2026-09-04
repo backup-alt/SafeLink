@@ -14,6 +14,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 
@@ -128,6 +129,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="SafeLink Ocean API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

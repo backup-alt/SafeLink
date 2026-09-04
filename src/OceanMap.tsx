@@ -19,28 +19,7 @@ interface Particle {
   age: number
 }
 
-const BASE_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    dark: {
-      type: 'raster',
-      tiles: ['/api/map-tile/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{
-    id: 'dark',
-    type: 'raster',
-    source: 'dark',
-    paint: {
-      'raster-saturation': -0.78,
-      'raster-contrast': 0.08,
-      'raster-brightness-min': 0.1,
-      'raster-brightness-max': 0.54,
-    },
-  }],
-}
+const BASE_STYLE = 'https://tiles.openfreemap.org/styles/dark'
 
 function nearestIndex(values: number[], target: number): number {
   let best = 0
@@ -233,12 +212,36 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
       if (source) source.updateImage({ url, coordinates })
       else {
         map.addSource('ocean-field', { type: 'image', url, coordinates })
+        const firstLabel = map.getStyle().layers.find((candidate) => candidate.type === 'symbol')?.id
         map.addLayer({
           id: 'ocean-field',
           type: 'raster',
           source: 'ocean-field',
-          paint: { 'raster-opacity': 1, 'raster-fade-duration': 320, 'raster-resampling': 'linear' },
+          paint: { 'raster-opacity': 1, 'raster-fade-duration': 180, 'raster-resampling': 'linear' },
+        }, firstLabel)
+        map.addSource('safelink-coastline', {
+          type: 'geojson',
+          data: '/ne_10m_land.geojson',
         })
+        map.addLayer({
+          id: 'safelink-coastline-casing',
+          type: 'line',
+          source: 'safelink-coastline',
+          paint: {
+            'line-color': 'rgba(4, 12, 16, .72)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.4, 7, 3, 11, 5],
+          },
+        }, firstLabel)
+        map.addLayer({
+          id: 'safelink-coastline',
+          type: 'line',
+          source: 'safelink-coastline',
+          paint: {
+            'line-color': '#73888d',
+            'line-opacity': .9,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, .55, 7, 1.15, 11, 1.8],
+          },
+        }, firstLabel)
       }
     }
     if (map.isStyleLoaded()) void apply()
