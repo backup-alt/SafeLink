@@ -95,7 +95,7 @@ export async function fieldToDataUrl(
   const eastEdge = longitudes[sourceWidth - 1] + longitudeStep / 2
   // MapLibre performs the final GPU interpolation. Rendering near the source
   // resolution avoids blocking the UI with a multi-million-pixel CPU loop.
-  const renderWidth = Math.min(1536, Math.max(768, sourceWidth * 4))
+  const renderWidth = Math.min(1024, Math.max(720, sourceWidth * 3))
   const canvas = document.createElement('canvas')
   const mercatorY = (latitude: number) => {
     const radians = latitude * Math.PI / 180

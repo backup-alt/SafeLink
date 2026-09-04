@@ -24,7 +24,7 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
   sources: {
     'safelink-land': {
       type: 'geojson',
-      data: '/ne_10m_land.geojson',
+      data: '/indian-ocean-land.geojson',
       attribution: 'Ocean data © Copernicus Marine · boundaries © Natural Earth',
     },
   },
