@@ -3,9 +3,9 @@ import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
-import { fetchCatalog, fetchField, prefetchField } from './api'
+import { fetchCatalog, fetchField, fetchPFZ, prefetchField } from './api'
 import OceanMap from './OceanMap'
-import type { Catalog, FieldData, Inspection, LayerId, LayerMeta } from './types'
+import type { Catalog, FieldData, Inspection, LayerId, LayerMeta, PFZFeature, PFZResponse } from './types'
 
 const LAYER_ICONS = {
   waves: Waves,
@@ -195,6 +195,37 @@ export default function App() {
   const [searchError, setSearchError] = useState(false)
   const [focusPoint, setFocusPoint] = useState<[number, number] | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [pfz, setPFZ] = useState<PFZResponse | null>(null)
+  const [pfzEnabled, setPFZEnabled] = useState(true)
+  const [pfzLoading, setPFZLoading] = useState(true)
+  const [pfzError, setPFZError] = useState(false)
+  const [selectedPFZ, setSelectedPFZ] = useState<PFZFeature | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer = 0
+    const load = async () => {
+      try {
+        const result = await fetchPFZ(controller.signal)
+        if (controller.signal.aborted) return
+        setPFZ(result)
+        setPFZError(false)
+        setSelectedPFZ(null)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        console.warn('PFZ overlay unavailable', error)
+        setPFZError(true)
+        setPFZ((previous) => previous ? { ...previous, metadata: { ...previous.metadata, stale: true } } : null)
+      } finally {
+        if (!controller.signal.aborted) {
+          setPFZLoading(false)
+          timer = window.setTimeout(load, 5 * 60 * 1000)
+        }
+      }
+    }
+    void load()
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [])
   const updateHover = useCallback((value: Inspection | null, point?: { x: number; y: number }) => {
     setHover(value && point ? { inspection: value, x: point.x, y: point.y } : null)
   }, [])
@@ -291,6 +322,9 @@ export default function App() {
         focusPoint={focusPoint}
         onInspect={setInspection}
         onHover={updateHover}
+        pfz={pfz}
+        pfzEnabled={pfzEnabled}
+        onPFZInspect={setSelectedPFZ}
       />
 
       <header className="topbar glass">
@@ -300,7 +334,7 @@ export default function App() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Coordinates: 12.6, 80.4 or 12°N 80°E" aria-label="Search latitude and longitude" />
           <button type="submit" aria-label="Search coordinates"><Search size={19} /></button>
         </form>
-        <div className="live-status"><span className="live-dot" /> Copernicus live</div>
+        <div className="live-status"><span className="live-dot" /> Copernicus Marine</div>
         <button className="info-toggle" type="button" onClick={() => setInfoOpen(!infoOpen)}><Info size={18} /> Data info <ChevronDown size={15} /></button>
       </header>
 
@@ -314,7 +348,30 @@ export default function App() {
       )}
 
       {catalog && <LayerRail layers={catalog.layers} selected={selectedLayer} onSelect={chooseLayer} />}
+      <section className="overlay-control glass" aria-label="Map overlays">
+        <div className="rail-heading">Overlays</div>
+        <label><input type="checkbox" checked={pfzEnabled && !!pfz} disabled={!pfz}
+          onChange={(event) => { setPFZEnabled(event.target.checked); setSelectedPFZ(null) }} />
+          <span>Potential Fishing Zones</span></label>
+        <small role="status">{pfzLoading ? 'Loading INCOIS advisory…'
+          : !pfz ? 'PFZ unavailable · retrying automatically'
+          : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} zones`}</small>
+        {pfz && <small>Advisory: {pfz.metadata.advisory_date ?? 'Date unavailable'}{pfz.metadata.advisory_dates.length > 1 ? ' (latest; mixed dates)' : ''}</small>}
+        {pfz && <small title={pfz.metadata.fetched_at}>Fetched: {new Date(pfz.metadata.fetched_at).toLocaleString('en-IN')}</small>}
+      </section>
       {layer && <Legend layer={layer} />}
+
+      {selectedPFZ && pfzEnabled && (
+        <section className="inspection-card glass pfz-inspection" aria-label="PFZ advisory information">
+          <button type="button" onClick={() => setSelectedPFZ(null)} aria-label="Close PFZ information"><X size={16} /></button>
+          <div className="inspection-time">Potential Fishing Zone</div>
+          <div className="inspection-row"><span>Source</span><b>INCOIS</b></div>
+          <div className="inspection-row"><span>PFZ</span><b>{selectedPFZ.properties.Sno ?? 'Not supplied'}</b></div>
+          <div className="inspection-row"><span>Advisory</span><b>{selectedPFZ.properties.advisory_date ?? 'Unknown'}</b></div>
+          {typeof selectedPFZ.properties.Length === 'number' && <div className="inspection-row"><span>Reported length*</span><b>{selectedPFZ.properties.Length.toFixed(1)}</b></div>}
+          <small>*Source length units are not specified by this feed. Advisory only—not navigation guidance.{pfz?.metadata.stale ? ' Cached advisory; refresh unavailable.' : ''}</small>
+        </section>
+      )}
 
       {inspection && layer && (
         <section className="inspection-card glass">

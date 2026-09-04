@@ -1,5 +1,33 @@
 export type LayerId = 'waves' | 'currents' | 'temperature' | 'sea_level' | 'chlorophyll'
 
+export interface PFZProperties {
+  Sno?: string | number | null
+  Length?: number | null
+  Year?: string | number | null
+  Julian_day?: string | number | null
+  advisory_date: string | null
+  [key: string]: unknown
+}
+
+export interface PFZFeature {
+  type: 'Feature'
+  id: number
+  geometry: { type: 'MultiLineString'; coordinates: number[][][] }
+  properties: PFZProperties
+}
+
+export interface PFZResponse {
+  data: { type: 'FeatureCollection'; features: PFZFeature[] }
+  metadata: {
+    source: 'INCOIS'
+    fetched_at: string
+    advisory_date: string | null
+    advisory_dates: string[]
+    feature_count: number
+    stale: boolean
+  }
+}
+
 export interface LayerMeta {
   id: LayerId
   label: string

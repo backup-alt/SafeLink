@@ -3,7 +3,7 @@ import * as maplibregl from 'maplibre-gl'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
 import { fieldToDataUrl, isLandAt } from './colors'
-import type { Catalog, FieldData, Inspection, LayerMeta } from './types'
+import type { Catalog, FieldData, Inspection, LayerMeta, PFZFeature, PFZResponse } from './types'
 
 interface OceanMapProps {
   field: FieldData | null
@@ -12,6 +12,9 @@ interface OceanMapProps {
   focusPoint: [number, number] | null
   onInspect: (inspection: Inspection | null) => void
   onHover: (inspection: Inspection | null, point?: { x: number; y: number }) => void
+  pfz: PFZResponse | null
+  pfzEnabled: boolean
+  onPFZInspect: (feature: PFZFeature | null) => void
 }
 
 interface Particle {
@@ -179,7 +182,7 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
   return { lng: minLng, lat: minLat, age: 90 }
 }
 
-function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: OceanMapProps) {
+function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const labelCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -187,11 +190,14 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const fieldRef = useRef(field)
   const layerRef = useRef(layer)
-  const callbacksRef = useRef({ onInspect, onHover })
+  const callbacksRef = useRef({ onInspect, onHover, onPFZInspect })
+  const pfzRef = useRef({ pfz, enabled: pfzEnabled })
+  const pfzHoverRef = useRef<number | null>(null)
 
   fieldRef.current = field
   layerRef.current = layer
-  callbacksRef.current = { onInspect, onHover }
+  callbacksRef.current = { onInspect, onHover, onPFZInspect }
+  pfzRef.current = { pfz, enabled: pfzEnabled }
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -299,7 +305,32 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
     }
     map.on('zoomend', addLandDetails)
     map.once('load', addLandDetails)
+    const pickPFZ = (event: MapMouseEvent) => {
+      if (!pfzRef.current.enabled || !map.getLayer('pfz-line')) return null
+      if (map.queryRenderedFeatures(event.point, { layers: ['safelink-land-fill'] }).length) return null
+      const { x, y } = event.point
+      const hit = map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], { layers: ['pfz-line'] })[0]
+      return hit ? pfzRef.current.pfz?.data.features.find((feature) => feature.id === hit.id) ?? null : null
+    }
+    const highlightPFZ = (id: number | null) => {
+      if (pfzHoverRef.current === id) return
+      if (pfzHoverRef.current !== null && map.getSource('pfz')) {
+        map.setFeatureState({ source: 'pfz', id: pfzHoverRef.current }, { hover: false })
+      }
+      pfzHoverRef.current = id
+      if (id !== null) map.setFeatureState({ source: 'pfz', id }, { hover: true })
+      map.getCanvas().style.cursor = id === null ? '' : 'pointer'
+    }
+    let inspectionSequence = 0
     map.on('click', (event: MapMouseEvent) => {
+      const sequence = ++inspectionSequence
+      const advisory = pickPFZ(event)
+      callbacksRef.current.onPFZInspect(advisory)
+      if (advisory) {
+        callbacksRef.current.onInspect(null)
+        callbacksRef.current.onHover(null)
+        return
+      }
       if (isLandAt(event.lngLat.lng, event.lngLat.lat)) {
         callbacksRef.current.onInspect(null)
         return
@@ -316,13 +347,19 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
       })
       fetch(`/api/value/${current.layer}?${parameters}`)
         .then((response) => response.ok ? response.json() as Promise<Inspection> : Promise.reject())
-        .then((inspection) => callbacksRef.current.onInspect(inspection))
-        .catch(() => callbacksRef.current.onInspect(inspectField(current, event.lngLat.lng, event.lngLat.lat)))
+        .then((inspection) => { if (sequence === inspectionSequence) callbacksRef.current.onInspect(inspection) })
+        .catch(() => { if (sequence === inspectionSequence) callbacksRef.current.onInspect(inspectField(current, event.lngLat.lng, event.lngLat.lat)) })
     })
     let lastHover = 0
     map.on('mousemove', (event: MapMouseEvent) => {
       if (performance.now() - lastHover < 45) return
       lastHover = performance.now()
+      const advisory = pickPFZ(event)
+      highlightPFZ(advisory?.id ?? null)
+      if (advisory) {
+        callbacksRef.current.onHover(null)
+        return
+      }
       if (isLandAt(event.lngLat.lng, event.lngLat.lat)) {
         callbacksRef.current.onHover(null)
         return
@@ -331,14 +368,64 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
       const inspection = current ? inspectField(current, event.lngLat.lng, event.lngLat.lat) : null
       callbacksRef.current.onHover(inspection, event.point)
     })
-    map.on('mouseout', () => callbacksRef.current.onHover(null))
+    map.on('mouseout', () => { highlightPFZ(null); callbacksRef.current.onHover(null) })
     mapRef.current = map
     return () => {
+      inspectionSequence += 1
       map.off('zoomend', addLandDetails)
       map.remove()
       mapRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !pfz) return
+    const apply = () => {
+      if (!map.getLayer('safelink-land-fill')) return
+      const source = map.getSource('pfz') as maplibregl.GeoJSONSource | undefined
+      if (source) {
+        map.removeFeatureState({ source: 'pfz' })
+        pfzHoverRef.current = null
+        map.getCanvas().style.cursor = ''
+        source.setData(pfz.data)
+        return
+      }
+      map.addSource('pfz', { type: 'geojson', data: pfz.data, attribution: 'PFZ advisories © INCOIS' })
+      const visibility = pfzRef.current.enabled ? 'visible' : 'none'
+      map.addLayer({
+        id: 'pfz-casing', type: 'line', source: 'pfz',
+        layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#142128', 'line-opacity': .95,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 2, 4.5, 6, 6, 11, 9] },
+      }, 'safelink-land-fill')
+      map.addLayer({
+        id: 'pfz-line', type: 'line', source: 'pfz',
+        layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['case', ['boolean', ['feature-state', 'hover'], false], '#ffffff', '#ffd166'],
+          'line-width': ['interpolate', ['linear'], ['zoom'],
+            2, ['case', ['boolean', ['feature-state', 'hover'], false], 3.5, 2],
+            6, ['case', ['boolean', ['feature-state', 'hover'], false], 4.5, 3],
+            11, ['case', ['boolean', ['feature-state', 'hover'], false], 7, 5]] },
+      }, 'safelink-land-fill')
+    }
+    apply()
+    map.on('style.load', apply)
+    return () => { map.off('style.load', apply) }
+  }, [pfz?.data])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    for (const id of ['pfz-casing', 'pfz-line']) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', pfzEnabled ? 'visible' : 'none')
+    }
+    if (!pfzEnabled && map.getSource('pfz')) {
+      map.removeFeatureState({ source: 'pfz' })
+      pfzHoverRef.current = null
+      map.getCanvas().style.cursor = ''
+    }
+  }, [pfzEnabled, pfz?.data])
 
   useEffect(() => {
     const canvas = labelCanvasRef.current
@@ -486,7 +573,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
           type: 'raster',
           source: 'ocean-field',
           paint: { 'raster-opacity': 1, 'raster-fade-duration': 180, 'raster-resampling': 'linear' },
-        }, 'safelink-land-fill')
+        }, map.getLayer('pfz-casing') ? 'pfz-casing' : 'safelink-land-fill')
       }
     }
     if (map.isStyleLoaded()) void apply()

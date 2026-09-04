@@ -19,11 +19,13 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 
 from .data_service import DataRepository
+from .pfz_service import PFZService, PFZUnavailable
 from .cloud_repository import CloudDataRepository, HuggingFaceDataRepository
 from .huggingface_ingest import publish as publish_huggingface
 from .refresh import STATE, refresh_loop
 
 ROOT = Path(__file__).resolve().parents[1]
+pfz_service = PFZService()
 DATA_DIR = Path(os.getenv("SAFELINK_DATA_DIR", ROOT / "copernicus_data"))
 HF_MODE = bool(os.getenv("HF_DATASET_REPO"))
 ORACLE_MODE = bool(os.getenv("SAFELINK_OBJECT_STORAGE_BUCKET"))
@@ -147,6 +149,14 @@ def health() -> dict[str, str]:
 @app.get("/api/catalog")
 def catalog():
     return repository.catalog()
+
+
+@app.get("/api/pfz")
+def pfz():
+    try:
+        return pfz_service.get()
+    except PFZUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/field/{layer_id}")

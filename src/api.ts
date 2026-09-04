@@ -1,4 +1,4 @@
-import type { Catalog, FieldData, LayerId } from './types'
+import type { Catalog, FieldData, LayerId, PFZResponse } from './types'
 
 const fieldCache = new Map<string, FieldData>()
 const pendingFields = new Map<string, Promise<FieldData>>()
@@ -11,6 +11,8 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 export const fetchCatalog = (signal?: AbortSignal) => getJson<Catalog>('/api/catalog', signal)
+
+export const fetchPFZ = (signal?: AbortSignal) => getJson<PFZResponse>('/api/pfz', signal)
 
 export const fetchField = (layer: LayerId, time: string, signal?: AbortSignal) => {
   const key = `${layer}:${time}`

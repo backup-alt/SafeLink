@@ -92,6 +92,39 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000). Stop the server with `
 
 ## Data refresh and storage
 
+### Official Potential Fishing Zone overlay
+
+Potential Fishing Zones (PFZ) are official **INCOIS advisories**, separate from
+Copernicus Marine chlorophyll and other oceanographic observations/forecasts.
+Use the independent **Overlays → Potential Fishing Zones** checkbox with any
+ocean layer. PFZ defaults on when available. Click a gold line for its advisory
+date and PFZ number. PFZ is not calculated from chlorophyll and does not change
+with the Copernicus timeline. Chlorophyll remains CHL in mg/m³ on a logarithmic
+scale; see Data info for its observation age.
+
+`GET /api/pfz` proxies the official INCOIS WFS through the backend (no API key).
+The JSON response is `{ "data": <GeoJSON FeatureCollection>, "metadata": {...} }`.
+`data` remains usable GeoJSON with unchanged MultiLineString coordinates, unique
+render IDs, original properties, and a derived per-feature `advisory_date`.
+Metadata includes `source`, `fetched_at`, `feature_count`, `stale`, and
+`advisory_dates`; `advisory_date` is the latest valid Year + day-of-year date,
+not the server date. Mixed dates are indicated in the UI. Length is shown in
+unspecified source units rather than assuming kilometres.
+
+Each backend process caches validated successes in memory for 20 minutes.
+Refreshes are serialized; failures are logged and retried no sooner than one
+minute later. On failure the last successful response is served as stale with
+its original fetch timestamp. With no cached success, the API returns 503.
+Malformed snapshots (including invalid geometries or a non-geographic CRS)
+are rejected as a whole rather than displaying a silently incomplete advisory.
+An empty successful collection means no lines, not an outage. Browser requests
+poll independently every five minutes and never contact INCOIS directly.
+Cache data does not survive restarts and is not shared between replicas; cached
+advisories can be old, so always check the displayed date and stale indicator.
+
+SafeLink remains situational-awareness software and is **not certified navigation
+or safety guidance**. PFZ advisories do not guarantee a catch or safe conditions.
+
 With the standard start scripts, SafeLink checks for newer Copernicus data shortly after startup and then every six hours. Downloaded products are stored in `copernicus_data/`, which is intentionally excluded from Git. Files older than seven days are removed automatically.
 
 Forecast layers request the current Copernicus analysis/forecast run and up to ten days of available forecast data. Chlorophyll is an observation product and therefore follows its separate publication schedule. Available times can vary by product and Copernicus publication status.
@@ -212,3 +245,8 @@ start.ps1/.sh     Local production server
 ## Data attribution
 
 Ocean data is supplied by the [Copernicus Marine Service](https://marine.copernicus.eu/). Basemap and geographic context use OpenStreetMap/OpenFreeMap services and their applicable attribution terms.
+
+Potential Fishing Zone advisories are supplied by [INCOIS](https://incois.gov.in/)
+via its public `PFZ_Automation:pfzlines` GeoServer WFS. The self-contained land
+reference layers use Natural Earth. PFZ is an independent advisory overlay,
+not a Copernicus chlorophyll-derived prediction.
