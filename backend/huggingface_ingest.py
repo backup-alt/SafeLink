@@ -181,49 +181,74 @@ def publish() -> bool:
         dataset_by_prefix = {prefix_name: values for prefix_name, *values in DATASETS}
         with tempfile.TemporaryDirectory(prefix="safelink-hf-") as temporary:
             working_dir = Path(temporary)
+            work = []
+            today = datetime.now(timezone.utc).date()
             for layer_id, config in LAYERS.items():
                 product_prefix = config.prefix.rstrip("_")
                 dataset_id, variables, has_depth = dataset_by_prefix[product_prefix]
                 layer_output = working_dir / f"frames-{layer_id}"
                 layer_output.mkdir()
-                frames = []
                 layer_manifest = {
                     "id": layer_id,
                     "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                    "frames": frames,
+                    "frames": [],
                 }
                 layers.append(layer_manifest)
-                today = datetime.now(timezone.utc).date()
                 if product_prefix == "chlorophyll":
                     first_day, last_day = today - timedelta(days=10), today - timedelta(days=2)
+                    priority_day = last_day
                 else:
                     first_day, last_day = today, today + timedelta(days=9)
+                    priority_day = first_day
+                days = []
                 day = first_day
                 while day <= last_day:
-                    path = download_dataset_window(
-                        working_dir,
-                        product_prefix,
-                        dataset_id,
-                        variables,
-                        has_depth,
-                        day,
-                        day,
-                    )
-                    try:
-                        frames.extend(
-                            _upload_layer(api, repo_id, prefix, run_id, layer_id, path, layer_output)
-                        )
-                    finally:
-                        path.unlink(missing_ok=True)
+                    days.append(day)
                     day += timedelta(days=1)
-                    frames.sort(key=lambda frame: frame["time"])
-                    layer_manifest["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                    _publish_manifest(
-                        api, repo_id, manifest_path, run_id, layers, complete=False
+                work.append({
+                    "layer_id": layer_id,
+                    "product_prefix": product_prefix,
+                    "dataset_id": dataset_id,
+                    "variables": variables,
+                    "has_depth": has_depth,
+                    "output": layer_output,
+                    "manifest": layer_manifest,
+                    "priority_day": priority_day,
+                    "remaining_days": [value for value in days if value != priority_day],
+                })
+
+            def publish_day(item: dict, day) -> None:
+                frames = item["manifest"]["frames"]
+                path = download_dataset_window(
+                    working_dir,
+                    item["product_prefix"],
+                    item["dataset_id"],
+                    item["variables"],
+                    item["has_depth"],
+                    day,
+                    day,
+                )
+                try:
+                    frames.extend(
+                        _upload_layer(
+                            api, repo_id, prefix, run_id, item["layer_id"], path, item["output"]
+                        )
                     )
-                if not frames:
-                    raise RuntimeError(f"No frames were produced for {layer_id}")
+                finally:
+                    path.unlink(missing_ok=True)
                 frames.sort(key=lambda frame: frame["time"])
+                item["manifest"]["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                _publish_manifest(api, repo_id, manifest_path, run_id, layers, complete=False)
+
+            # Expose one useful day for every layer before extending forecasts.
+            for item in work:
+                publish_day(item, item["priority_day"])
+            for item in work:
+                for day in item["remaining_days"]:
+                    publish_day(item, day)
+            for item in work:
+                if not item["manifest"]["frames"]:
+                    raise RuntimeError(f"No frames were produced for {item['layer_id']}")
 
         _publish_manifest(api, repo_id, manifest_path, run_id, layers, complete=True)
         _delete_expired_runs(api, repo_id, prefix, run_id)
