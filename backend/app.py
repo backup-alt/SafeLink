@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -18,13 +18,33 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 
 from .data_service import DataRepository
-from .cloud_repository import CloudDataRepository
+from .cloud_repository import CloudDataRepository, HuggingFaceDataRepository
+from .huggingface_ingest import publish as publish_huggingface
 from .refresh import STATE, refresh_loop
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.getenv("SAFELINK_DATA_DIR", ROOT / "copernicus_data"))
-CLOUD_MODE = bool(os.getenv("SAFELINK_OBJECT_STORAGE_BUCKET"))
-repository = CloudDataRepository() if CLOUD_MODE else DataRepository(DATA_DIR)
+HF_MODE = bool(os.getenv("HF_DATASET_REPO"))
+ORACLE_MODE = bool(os.getenv("SAFELINK_OBJECT_STORAGE_BUCKET"))
+CLOUD_MODE = HF_MODE or ORACLE_MODE
+repository = (
+    HuggingFaceDataRepository()
+    if HF_MODE
+    else CloudDataRepository()
+    if ORACLE_MODE
+    else DataRepository(DATA_DIR)
+)
+
+
+async def _huggingface_refresh_loop() -> None:
+    await asyncio.sleep(5)
+    while True:
+        if os.getenv("SAFELINK_AUTO_REFRESH", "false").lower() in {"1", "true", "yes"}:
+            try:
+                await asyncio.to_thread(publish_huggingface)
+            except Exception:
+                pass
+        await asyncio.sleep(6 * 60 * 60)
 
 
 @lru_cache(maxsize=1024)
@@ -93,7 +113,13 @@ def _validate_tile(z: int, x: int, y: int) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    task = None if CLOUD_MODE else asyncio.create_task(refresh_loop(DATA_DIR))
+    task = (
+        asyncio.create_task(_huggingface_refresh_loop())
+        if HF_MODE
+        else None
+        if ORACLE_MODE
+        else asyncio.create_task(refresh_loop(DATA_DIR))
+    )
     yield
     if task is not None:
         task.cancel()
@@ -154,6 +180,22 @@ def refresh_status():
         "last_completed": STATE.last_completed,
         "last_error": STATE.last_error,
     }
+
+
+@app.post("/api/admin/refresh", status_code=202)
+def trigger_cloud_refresh(
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
+    if not HF_MODE:
+        raise HTTPException(status_code=409, detail="Hugging Face cloud mode is not configured")
+    expected = os.getenv("SAFELINK_REFRESH_TOKEN")
+    if not expected or authorization != f"Bearer {expected}":
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if STATE.running:
+        return {"accepted": False, "detail": "A refresh is already running"}
+    background_tasks.add_task(publish_huggingface)
+    return {"accepted": True}
 
 
 @app.get("/api/map-tile/{z}/{x}/{y}.png")

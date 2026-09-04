@@ -125,63 +125,54 @@ On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` 
 
 ## Deploy on Railway
 
-SafeLink supports a free-tier-oriented hybrid deployment:
+SafeLink supports a Railway and Hugging Face deployment that keeps all credentials in Railway:
 
 ```text
-Copernicus Marine -> GitHub Actions -> Oracle Object Storage
-                                                |
-Browser ------------> Railway API <-------------+
+Copernicus Marine -> Railway publisher -> Hugging Face dataset
+                              ^                    |
+                              |                    v
+Browser --------------------> Railway API <--------+
 ```
 
-GitHub Actions checks for fresh Copernicus data every six hours. It publishes at most one normal run per UTC day, stores seven daily runs, and writes the manifest only after every layer is uploaded successfully. Railway reads only the requested compressed frame into memory, so the full NetCDF archive is never stored on Railway.
+Railway downloads one Copernicus product at a time, converts it into compressed web frames, uploads each small batch to Hugging Face, and immediately removes its temporary files. The publisher checks every six hours while the service is active and publishes at most one normal run per UTC day. Seven daily runs remain in the dataset repository and its commit history is squashed after successful publication so storage does not grow indefinitely.
 
-### 1. Create Oracle Object Storage
+### 1. Create the Hugging Face dataset
 
-1. Create or sign in to an Oracle Cloud account and select the home region.
-2. In **Object Storage & Archive Storage**, create a private Standard-tier bucket such as `safelink-data`.
-3. Record the region identifier and Object Storage namespace. The namespace is shown in the tenancy details.
-4. In your OCI user settings, generate a **Customer Secret Key** for the S3-compatible API. Copy both the generated access key and secret key; the secret is shown only once.
-5. Build the endpoint using this format:
+1. Create a public Hugging Face dataset repository, such as `your-name/safelink-data`.
+2. Create a fine-grained Hugging Face access token with write permission for that dataset.
+3. Keep the token private. SafeLink data may be public, but the write token must never be committed.
 
-   ```text
-   https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
-   ```
-
-For better isolation, create a dedicated OCI user and policy that only permits object operations on the SafeLink bucket.
-
-### 2. Configure the scheduled GitHub publisher
-
-In the GitHub repository, open **Settings -> Secrets and variables -> Actions** and create these repository secrets:
-
-```text
-COPERNICUSMARINE_SERVICE_USERNAME
-COPERNICUSMARINE_SERVICE_PASSWORD
-SAFELINK_OBJECT_STORAGE_ENDPOINT
-SAFELINK_OBJECT_STORAGE_REGION
-SAFELINK_OBJECT_STORAGE_BUCKET
-SAFELINK_OBJECT_STORAGE_ACCESS_KEY
-SAFELINK_OBJECT_STORAGE_SECRET_KEY
-```
-
-The endpoint, region, bucket, access key, and secret key are the Oracle values from the previous step. Keep the bucket private.
-
-Open **Actions -> Refresh Copernicus cloud data -> Run workflow** to publish the first run. The initial execution downloads and converts all five products and may take a significant amount of time. Later scheduled checks skip publication when the current UTC day's run already exists. Select the `force` option during a manual run only when today's data must be rebuilt.
-
-### 3. Configure Railway as the reader
+### 2. Configure Railway
 
 Add these variables to the Railway SafeLink service:
 
 ```text
-SAFELINK_AUTO_REFRESH=false
-SAFELINK_OBJECT_STORAGE_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
-SAFELINK_OBJECT_STORAGE_REGION=<region>
-SAFELINK_OBJECT_STORAGE_BUCKET=safelink-data
-SAFELINK_OBJECT_STORAGE_ACCESS_KEY=<oracle-access-key>
-SAFELINK_OBJECT_STORAGE_SECRET_KEY=<oracle-secret-key>
-SAFELINK_OBJECT_STORAGE_PREFIX=safelink
+COPERNICUSMARINE_SERVICE_USERNAME=<copernicus-username>
+COPERNICUSMARINE_SERVICE_PASSWORD=<copernicus-password>
+HF_DATASET_REPO=<hugging-face-user>/safelink-data
+HF_TOKEN=<hugging-face-write-token>
+SAFELINK_AUTO_REFRESH=true
 ```
 
-Railway does not need the Copernicus username or password. Those credentials belong only in GitHub Actions, where ingestion runs. After setting the variables, redeploy the Railway service.
+Optional variables:
+
+```text
+HF_DATASET_REVISION=main
+SAFELINK_HF_PREFIX=safelink
+SAFELINK_HF_SQUASH_HISTORY=true
+SAFELINK_REFRESH_TOKEN=<long-random-token>
+```
+
+When `SAFELINK_REFRESH_TOKEN` is configured, an external scheduler can start a refresh with an authenticated request:
+
+```bash
+curl -X POST https://<railway-domain>/api/admin/refresh \
+  -H "Authorization: Bearer <long-random-token>"
+```
+
+This is useful when Railway Serverless is enabled and the service may be asleep at the scheduled refresh time. A normal browser visit also wakes the service; the in-process publisher checks shortly after application startup and then every six hours while it remains active.
+
+After adding or changing variables, redeploy the Railway service. The first publication is large and can take a significant amount of time. Progress and any error are available from `/api/refresh/status`.
 
 Verify the deployment:
 
@@ -190,14 +181,14 @@ https://<railway-domain>/api/health
 https://<railway-domain>/api/catalog
 ```
 
-The health endpoint should return `{"status":"ok"}`. In the catalog response, all five layers should have `"available": true` after the first publisher workflow finishes.
+The health endpoint should return `{"status":"ok"}`. In the catalog response, all five layers should have `"available": true` after the first Hugging Face publication finishes.
 
 ### Cloud-data security
 
-- Never commit Copernicus or Oracle credentials.
-- Keep the Oracle bucket private; Railway and GitHub access it through environment secrets.
-- Rotate the Oracle Customer Secret Key if it is accidentally displayed or committed.
-- Use separate read-only Railway and write-enabled GitHub credentials when configuring a production OCI tenancy.
+- Never commit Copernicus credentials or the Hugging Face write token.
+- Store credentials only as Railway service variables.
+- The backend can read a public dataset without a token, but the publisher requires write permission.
+- Rotate the Hugging Face token if it is accidentally displayed or committed.
 
 ## Troubleshooting
 

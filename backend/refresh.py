@@ -57,6 +57,49 @@ def _needs_refresh(data_dir: Path) -> bool:
     return False
 
 
+def download_dataset(
+    data_dir: Path,
+    prefix: str,
+    dataset_id: str,
+    variables: list[str],
+    has_depth: bool,
+) -> Path:
+    """Download one product and return its completed NetCDF path."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    today = _utc_now().date()
+    forecast_end = today + timedelta(days=9)
+    is_observation = prefix == "chlorophyll"
+    start_date = today - timedelta(days=10) if is_observation else today
+    end_date = today - timedelta(days=2) if is_observation else forecast_end
+    filename_date = end_date if is_observation else today
+    final_path = data_dir / f"{prefix}_{filename_date.isoformat()}.nc"
+    temporary_path = data_dir / f".{prefix}_{filename_date.isoformat()}.part.nc"
+    request = {
+        "dataset_id": dataset_id,
+        "variables": variables,
+        **REGION,
+        "start_datetime": f"{start_date.isoformat()}T00:00:00",
+        "end_datetime": f"{end_date.isoformat()}T23:59:59",
+        "output_directory": str(data_dir),
+        "output_filename": temporary_path.name,
+        "file_format": "netcdf",
+        "coordinates_selection_method": "inside",
+        "netcdf_compression_level": 4,
+        "overwrite": True,
+    }
+    if has_depth:
+        request.update({"minimum_depth": 0.0, "maximum_depth": 1.0})
+    try:
+        copernicusmarine.subset(**request)
+        if not temporary_path.exists():
+            raise RuntimeError(f"Copernicus did not produce {temporary_path.name}")
+        temporary_path.replace(final_path)
+        return final_path
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def refresh_once(data_dir: Path) -> None:
     if not REFRESH_LOCK.acquire(blocking=False):
         return
@@ -65,38 +108,12 @@ def refresh_once(data_dir: Path) -> None:
     STATE.last_error = None
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-        today = _utc_now().date()
-        # Copernicus' global analysis/forecast products publish ten-day runs.
-        forecast_end = today + timedelta(days=9)
         for prefix, dataset_id, variables, has_depth in DATASETS:
-            is_observation = prefix == "chlorophyll"
-            start_date = today - timedelta(days=10) if is_observation else today
-            end_date = today - timedelta(days=2) if is_observation else forecast_end
-            filename_date = end_date if is_observation else today
-            final_name = f"{prefix}_{filename_date.isoformat()}.nc"
-            temporary_name = f".{prefix}_{filename_date.isoformat()}.part.nc"
-            request = {
-                "dataset_id": dataset_id,
-                "variables": variables,
-                **REGION,
-                "start_datetime": f"{start_date.isoformat()}T00:00:00",
-                "end_datetime": f"{end_date.isoformat()}T23:59:59",
-                "output_directory": str(data_dir),
-                "output_filename": temporary_name,
-                "file_format": "netcdf",
-                "coordinates_selection_method": "inside",
-                "netcdf_compression_level": 4,
-                "overwrite": True,
-            }
-            if has_depth:
-                request.update({"minimum_depth": 0.0, "maximum_depth": 1.0})
             try:
-                copernicusmarine.subset(**request)
-                (data_dir / temporary_name).replace(data_dir / final_name)
+                download_dataset(data_dir, prefix, dataset_id, variables, has_depth)
             except Exception as error:  # Continue so one unavailable product does not block the others.
                 LOGGER.exception("Could not refresh %s", prefix)
                 STATE.last_error = f"{prefix}: {error}"
-                (data_dir / temporary_name).unlink(missing_ok=True)
         _prune(data_dir)
         STATE.last_completed = _utc_now().isoformat()
     finally:

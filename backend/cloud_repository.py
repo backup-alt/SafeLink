@@ -8,6 +8,8 @@ import os
 from threading import Lock
 from time import monotonic
 from typing import Any
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 import boto3
 import numpy as np
@@ -187,3 +189,29 @@ class CloudDataRepository:
             "value": round(value, 4),
             **{key: round(number, 4) for key, number in extras.items()},
         }
+
+
+class HuggingFaceDataRepository(CloudDataRepository):
+    """Read public or token-protected frames from a Hugging Face dataset."""
+
+    def __init__(self, repo_id: str | None = None, revision: str | None = None, prefix: str | None = None):
+        super().__init__(client=object(), bucket="", prefix=prefix)
+        self.repo_id = repo_id or os.environ["HF_DATASET_REPO"]
+        self.revision = revision or os.getenv("HF_DATASET_REVISION", "main")
+        self.token = os.getenv("HF_TOKEN")
+
+    def _get_bytes(self, key: str) -> bytes:
+        repo = quote(self.repo_id, safe="/")
+        revision = quote(self.revision, safe="")
+        path = quote(key, safe="/")
+        headers = {"User-Agent": "SafeLink/0.1"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        try:
+            with urlopen(
+                Request(f"https://huggingface.co/datasets/{repo}/resolve/{revision}/{path}", headers=headers),
+                timeout=60,
+            ) as response:
+                return response.read()
+        except Exception as error:
+            raise FileNotFoundError(f"Hugging Face data object is unavailable: {key}") from error
