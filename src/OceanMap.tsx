@@ -207,6 +207,98 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
+    const addLandDetails = () => {
+      if (map.getZoom() < 3.8 || !map.isStyleLoaded() || map.getSource('safelink-land-details')) return
+      map.addSource('safelink-land-details', {
+        type: 'geojson',
+        data: '/indian-ocean-land-details.geojson',
+      })
+      map.addLayer({
+        id: 'safelink-major-rivers',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 3.8,
+        filter: ['all', ['==', ['get', 'kind'], 'river'], ['<=', ['get', 'rank'], 4]],
+        paint: {
+          'line-color': '#237e98',
+          'line-opacity': .72,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 4, .55, 8, 1.15, 11, 1.8],
+        },
+      }, 'safelink-lakes-fill')
+      map.addLayer({
+        id: 'safelink-rivers',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 5.5,
+        filter: ['all', ['==', ['get', 'kind'], 'river'], ['>', ['get', 'rank'], 4]],
+        paint: {
+          'line-color': '#27758b',
+          'line-opacity': .55,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 5.5, .35, 9, .8, 11, 1.15],
+        },
+      }, 'safelink-lakes-fill')
+      map.addLayer({
+        id: 'safelink-roads-casing',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 6,
+        filter: ['==', ['get', 'kind'], 'road'],
+        paint: {
+          'line-color': 'rgba(17, 23, 25, .68)',
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, .35, 9, .6, 11, .72],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1, 9, 1.7, 11, 2.3],
+        },
+      }, 'safelink-lakes-fill')
+      map.addLayer({
+        id: 'safelink-roads',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 6,
+        filter: ['==', ['get', 'kind'], 'road'],
+        paint: {
+          'line-color': '#9ea9a7',
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, .45, 9, .65, 11, .75],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, .65, 9, 1, 11, 1.4],
+        },
+      }, 'safelink-lakes-fill')
+      map.addLayer({
+        id: 'safelink-state-boundaries',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 4.2,
+        filter: ['==', ['get', 'kind'], 'state'],
+        paint: {
+          'line-color': 'rgba(174, 190, 191, .55)',
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 4.2, .25, 7, .48, 11, .65],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 4.2, .35, 8, .7, 11, 1],
+          'line-dasharray': [2, 2.4],
+        },
+      }, 'safelink-coastline-casing')
+      map.addLayer({
+        id: 'safelink-country-boundaries-casing',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 3.8,
+        filter: ['==', ['get', 'kind'], 'country'],
+        paint: {
+          'line-color': 'rgba(7, 14, 17, .82)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3.8, 1.5, 8, 2.3, 11, 3],
+        },
+      }, 'safelink-coastline-casing')
+      map.addLayer({
+        id: 'safelink-country-boundaries',
+        type: 'line',
+        source: 'safelink-land-details',
+        minzoom: 3.8,
+        filter: ['==', ['get', 'kind'], 'country'],
+        paint: {
+          'line-color': 'rgba(180, 199, 201, .78)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3.8, .55, 8, .9, 11, 1.25],
+        },
+      }, 'safelink-coastline-casing')
+    }
+    map.on('zoomend', addLandDetails)
+    map.once('load', addLandDetails)
     map.on('click', (event: MapMouseEvent) => {
       if (isLandAt(event.lngLat.lng, event.lngLat.lat)) {
         callbacksRef.current.onInspect(null)
@@ -242,6 +334,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
     map.on('mouseout', () => callbacksRef.current.onHover(null))
     mapRef.current = map
     return () => {
+      map.off('zoomend', addLandDetails)
       map.remove()
       mapRef.current = null
     }
