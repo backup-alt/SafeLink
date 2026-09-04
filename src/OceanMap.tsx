@@ -20,6 +20,15 @@ interface Particle {
   age: number
 }
 
+interface MapLabel {
+  name: string
+  lng: number
+  lat: number
+  minZoom: number
+  rank: number
+  kind: 'country' | 'city' | 'lake'
+}
+
 maplibregl.setWorkerUrl(maplibreWorkerUrl)
 
 const BASE_STYLE: maplibregl.StyleSpecification = {
@@ -29,6 +38,10 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       type: 'geojson',
       data: '/indian-ocean-land.geojson',
       attribution: 'Ocean data © Copernicus Marine · boundaries © Natural Earth',
+    },
+    'safelink-lakes': {
+      type: 'geojson',
+      data: '/indian-ocean-lakes.geojson',
     },
   },
   layers: [
@@ -44,6 +57,25 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       paint: {
         'fill-color': '#3c4446',
         'fill-opacity': 1,
+      },
+    },
+    {
+      id: 'safelink-lakes-fill',
+      type: 'fill',
+      source: 'safelink-lakes',
+      paint: {
+        'fill-color': '#155f78',
+        'fill-opacity': .96,
+      },
+    },
+    {
+      id: 'safelink-lakes-outline',
+      type: 'line',
+      source: 'safelink-lakes',
+      paint: {
+        'line-color': '#237f98',
+        'line-opacity': .9,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 2, .35, 7, .8, 11, 1.2],
       },
     },
     {
@@ -150,6 +182,7 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
 function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const labelCanvasRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const fieldRef = useRef(field)
@@ -211,6 +244,102 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
     return () => {
       map.remove()
       mapRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const canvas = labelCanvasRef.current
+    const map = mapRef.current
+    if (!canvas || !map) return
+    const context = canvas.getContext('2d')
+    if (!context) return
+    let labels: MapLabel[] = []
+    let animationFrame = 0
+    let disposed = false
+
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect()
+      context.clearRect(0, 0, rect.width, rect.height)
+      const zoom = map.getZoom()
+      const bounds = map.getBounds()
+      const kindOrder = { country: 0, lake: 1, city: 2 }
+      const visible = labels
+        .filter((label) => label.minZoom <= zoom && !(label.kind === 'country' && zoom > 6.5)
+          && label.lng >= bounds.getWest() - 2 && label.lng <= bounds.getEast() + 2
+          && label.lat >= bounds.getSouth() - 2 && label.lat <= bounds.getNorth() + 2)
+        .sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.rank - b.rank)
+      const occupied: { left: number; top: number; right: number; bottom: number }[] = []
+
+      for (const label of visible) {
+        const point = map.project([label.lng, label.lat])
+        if (point.x < -80 || point.y < -20 || point.x > rect.width + 80 || point.y > rect.height + 20) continue
+        const country = label.kind === 'country'
+        const lake = label.kind === 'lake'
+        const size = country ? Math.min(14, 10.5 + zoom * .55) : lake ? 10 : Math.min(12, 9 + zoom * .35)
+        context.font = `${lake ? 'italic ' : ''}${country ? '700' : '600'} ${size}px Manrope, Inter, sans-serif`
+        const name = country ? label.name.toLocaleUpperCase('en') : label.name
+        const dotOffset = label.kind === 'city' ? 7 : 0
+        const width = context.measureText(name).width + dotOffset
+        const candidate = {
+          left: point.x - width / 2 - 4,
+          top: point.y - size / 2 - 4,
+          right: point.x + width / 2 + 4,
+          bottom: point.y + size / 2 + 4,
+        }
+        if (occupied.some((box) => candidate.left < box.right && candidate.right > box.left
+          && candidate.top < box.bottom && candidate.bottom > box.top)) continue
+        occupied.push(candidate)
+
+        context.textAlign = 'center'
+        context.textBaseline = 'middle'
+        context.lineJoin = 'round'
+        context.lineWidth = country ? 3.5 : 3
+        context.strokeStyle = 'rgba(11, 20, 24, .9)'
+        context.fillStyle = country ? 'rgba(226, 237, 238, .78)'
+          : lake ? 'rgba(126, 211, 229, .9)' : 'rgba(235, 242, 243, .9)'
+        context.strokeText(name, point.x + dotOffset / 2, point.y)
+        context.fillText(name, point.x + dotOffset / 2, point.y)
+        if (label.kind === 'city') {
+          context.beginPath()
+          context.arc(point.x - width / 2 + 1, point.y, 1.7, 0, Math.PI * 2)
+          context.fillStyle = 'rgba(224, 240, 242, .92)'
+          context.fill()
+        }
+      }
+    }
+    const scheduleDraw = () => {
+      if (animationFrame) return
+      animationFrame = requestAnimationFrame(() => {
+        animationFrame = 0
+        draw()
+      })
+    }
+    const resize = () => {
+      const ratio = Math.min(window.devicePixelRatio || 1, 2)
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = Math.round(rect.width * ratio)
+      canvas.height = Math.round(rect.height * ratio)
+      context.setTransform(ratio, 0, 0, ratio, 0, 0)
+      scheduleDraw()
+    }
+    const observer = new ResizeObserver(resize)
+    observer.observe(canvas)
+    resize()
+    map.on('move', scheduleDraw)
+    fetch('/indian-ocean-labels.json')
+      .then((response) => response.ok ? response.json() as Promise<MapLabel[]> : Promise.reject())
+      .then((data) => {
+        if (!disposed) {
+          labels = data
+          scheduleDraw()
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      disposed = true
+      cancelAnimationFrame(animationFrame)
+      observer.disconnect()
+      map.off('move', scheduleDraw)
     }
   }, [])
 
@@ -361,6 +490,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
     <div className="map-shell">
       <div ref={containerRef} className="map" />
       <canvas ref={canvasRef} className="particle-canvas" aria-hidden="true" />
+      <canvas ref={labelCanvasRef} className="label-canvas" aria-hidden="true" />
     </div>
   )
 }
