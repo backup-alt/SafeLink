@@ -1,4 +1,4 @@
-import type { Catalog, FieldData, LayerId, PFZResponse } from './types'
+import type { Catalog, ConditionSample, FieldData, LayerId, NearestPFZ, PFZResponse } from './types'
 
 const fieldCache = new Map<string, FieldData>()
 const pendingFields = new Map<string, Promise<FieldData>>()
@@ -13,6 +13,15 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 export const fetchCatalog = (signal?: AbortSignal) => getJson<Catalog>('/api/catalog', signal)
 
 export const fetchPFZ = (signal?: AbortSignal) => getJson<PFZResponse>('/api/pfz', signal)
+
+export const fetchNearestPFZ = (point: [number, number], signal?: AbortSignal) =>
+  getJson<NearestPFZ>(`/api/pfz/nearest?longitude=${point[0]}&latitude=${point[1]}`, signal)
+
+export const fetchCondition = (layer: LayerId, point: NearestPFZ['point'], time?: string, signal?: AbortSignal) => {
+  const params = new URLSearchParams({ longitude: String(point.lng), latitude: String(point.lat) })
+  if (time) params.set('time', time)
+  return getJson<ConditionSample>(`/api/value/${layer}?${params}`, signal)
+}
 
 export const fetchField = (layer: LayerId, time: string, signal?: AbortSignal) => {
   const key = `${layer}:${time}`

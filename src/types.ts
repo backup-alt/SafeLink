@@ -28,6 +28,20 @@ export interface PFZResponse {
   }
 }
 
+export interface NearestPFZ {
+  feature: PFZFeature
+  origin: { lng: number; lat: number }
+  point: { lng: number; lat: number }
+  distance_km: number
+  bearing_degrees: number | null
+  metadata: PFZResponse['metadata']
+}
+
+export interface ConditionSample extends Inspection {
+  time: string
+  unit: string
+}
+
 export interface LayerMeta {
   id: LayerId
   label: string

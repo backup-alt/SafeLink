@@ -125,6 +125,36 @@ advisories can be old, so always check the displayed date and stale indicator.
 SafeLink remains situational-awareness software and is **not certified navigation
 or safety guidance**. PFZ advisories do not guarantee a catch or safe conditions.
 
+### Nearest PFZ
+
+Click a map point (or enter coordinates), then choose **Find nearest PFZ** in
+Overlays. The result shows the nearest advisory feature, nearest point on its
+geometry, direct distance in kilometres, and initial bearing clockwise from true
+north. White highlights the selected feature; a white dot marks the origin and a
+gold dot the nearest point. **Show nearest point** centres the map there. Clicking
+another map point closes the result and selects a new origin. No device location
+permission is requested.
+
+`GET /api/pfz/nearest?latitude=12.6&longitude=80.4` searches every segment of every
+MultiLineString in the cached INCOIS snapshot, not just vertices or centroids.
+It returns `feature`, `origin`, `point`, `distance_km`, `bearing_degrees`, segment
+indices, and snapshot `metadata`. Empty advisories return 404; cold upstream
+failure returns 503; invalid coordinates return 422. A coincident point has no
+meaningful bearing (`null`). Calculations use minor great-circle arcs on a
+6371.0088 km mean-radius sphere, not an ellipsoidal navigation solution. The
+nearest feature may be stale or have a different advisory date; check its date.
+This is the geometrically nearest feature, not a recommended destination or a
+water-only route; a direct path can cross land.
+
+Copernicus conditions are requested independently through `/api/value/{layer}`
+at that point, using native nearest-grid sampling and the closest available
+timestamp to the selected timeline time. The response includes the actual
+`time` and `unit`; each sample's time is displayed separately. Missing data and
+points outside coverage display **Unavailable**, without hiding the PFZ result.
+Timeline changes refresh conditions but do not repeat the geometry lookup.
+There is no spatial/temporal extrapolation, catch prediction, or new ORCA chat
+integration. These endpoints provide the data needed for a future assistant.
+
 With the standard start scripts, SafeLink checks for newer Copernicus data shortly after startup and then every six hours. Downloaded products are stored in `copernicus_data/`, which is intentionally excluded from Git. Files older than seven days are removed automatically.
 
 Forecast layers request the current Copernicus analysis/forecast run and up to ten days of available forecast data. Chlorophyll is an observation product and therefore follows its separate publication schedule. Available times can vary by product and Copernicus publication status.

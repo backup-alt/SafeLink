@@ -123,3 +123,17 @@ button { color: inherit; }
   .timeline-top { padding: 0 34px; }
   .inspection-card { left: 8px; bottom: 106px; }
 }
+.nearest-pfz-button {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid #53d9d6;
+  border-radius: 6px;
+  background: #19343c;
+  color: #d8ffff;
+  cursor: pointer;
+}
+.nearest-pfz-button:disabled { opacity: .5; cursor: default; }
+.inspection-card.nearest-pfz-card { width: min(360px, calc(100vw - 32px)); max-height: 65vh; overflow-y: auto; }
+.inspection-card > .nearest-show-point { position: static; display: block; margin-top: 8px; padding: 7px; border: 1px solid #53d9d6; }
+.nearest-pfz-card > small, .nearest-condition small { display: block; margin-top: 5px; color: #b8cbd0; font-size: 11px; }
+.nearest-condition { margin-top: 10px; }

@@ -3,7 +3,7 @@ import * as maplibregl from 'maplibre-gl'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
 import { fieldToDataUrl, isLandAt } from './colors'
-import type { Catalog, FieldData, Inspection, LayerMeta, PFZFeature, PFZResponse } from './types'
+import type { Catalog, FieldData, Inspection, LayerMeta, NearestPFZ, PFZFeature, PFZResponse } from './types'
 
 interface OceanMapProps {
   field: FieldData | null
@@ -15,6 +15,8 @@ interface OceanMapProps {
   pfz: PFZResponse | null
   pfzEnabled: boolean
   onPFZInspect: (feature: PFZFeature | null) => void
+  onMapPoint: (point: [number, number]) => void
+  nearestPFZ: NearestPFZ | null
 }
 
 interface Particle {
@@ -182,7 +184,7 @@ function randomParticle(field: FieldData, map: MapLibreMap): Particle {
   return { lng: minLng, lat: minLat, age: 90 }
 }
 
-function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect }: OceanMapProps) {
+function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, pfzEnabled, onPFZInspect, onMapPoint, nearestPFZ }: OceanMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const labelCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -190,13 +192,13 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const fieldRef = useRef(field)
   const layerRef = useRef(layer)
-  const callbacksRef = useRef({ onInspect, onHover, onPFZInspect })
+  const callbacksRef = useRef({ onInspect, onHover, onPFZInspect, onMapPoint })
   const pfzRef = useRef({ pfz, enabled: pfzEnabled })
   const pfzHoverRef = useRef<number | null>(null)
 
   fieldRef.current = field
   layerRef.current = layer
-  callbacksRef.current = { onInspect, onHover, onPFZInspect }
+  callbacksRef.current = { onInspect, onHover, onPFZInspect, onMapPoint }
   pfzRef.current = { pfz, enabled: pfzEnabled }
 
   useEffect(() => {
@@ -324,6 +326,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
     let inspectionSequence = 0
     map.on('click', (event: MapMouseEvent) => {
       const sequence = ++inspectionSequence
+      callbacksRef.current.onMapPoint([((event.lngLat.lng + 180) % 360 + 360) % 360 - 180, event.lngLat.lat])
       const advisory = pickPFZ(event)
       callbacksRef.current.onPFZInspect(advisory)
       if (advisory) {
@@ -426,6 +429,41 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
       map.getCanvas().style.cursor = ''
     }
   }, [pfzEnabled, pfz?.data])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const data = { type: 'FeatureCollection' as const, features: nearestPFZ ? [
+      nearestPFZ.feature,
+      ...[nearestPFZ.origin, nearestPFZ.point].map((p, index) => ({
+        type: 'Feature' as const, properties: { origin: index === 0 },
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+      })),
+    ] : [] }
+    const apply = () => {
+      if (!map.getLayer('safelink-land-fill')) return
+      const source = map.getSource('nearest-pfz') as maplibregl.GeoJSONSource | undefined
+      if (source) {
+        source.setData(data)
+        map.moveLayer('nearest-pfz-highlight', 'safelink-land-fill')
+        return
+      }
+      map.addSource('nearest-pfz', { type: 'geojson', data })
+      map.addLayer({ id: 'nearest-pfz-highlight', type: 'line', source: 'nearest-pfz',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 2, 3, 11, 7] },
+      }, 'safelink-land-fill')
+      map.addLayer({ id: 'nearest-pfz-points', type: 'circle', source: 'nearest-pfz',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-radius': 6, 'circle-color': ['case', ['get', 'origin'], '#ffffff', '#ffd166'],
+          'circle-stroke-color': '#142128', 'circle-stroke-width': 2 },
+      })
+    }
+    apply()
+    map.on('style.load', apply)
+    return () => { map.off('style.load', apply) }
+  }, [nearestPFZ, pfz?.data])
 
   useEffect(() => {
     const canvas = labelCanvasRef.current

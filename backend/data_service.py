@@ -178,6 +178,10 @@ class DataRepository:
                 now = np.datetime64(datetime.now(timezone.utc).replace(tzinfo=None))
                 time_index = int(np.argmin(np.abs(times - now)))
 
+            if not (float(dataset.latitude.min()) <= latitude <= float(dataset.latitude.max())
+                    and float(dataset.longitude.min()) <= longitude <= float(dataset.longitude.max())):
+                raise ValueError("Outside available data coverage")
+
             def native_value(name: str) -> float:
                 selection = dataset[name].isel(time=time_index)
                 if "depth" in selection.dims:
@@ -205,5 +209,7 @@ class DataRepository:
                 "lng": longitude,
                 "lat": latitude,
                 "value": round(value, 4),
+                "time": self._iso(times[time_index]),
+                "unit": config.unit,
                 **{key: round(number, 4) for key, number in extras.items()},
             }

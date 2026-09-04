@@ -168,6 +168,9 @@ class CloudDataRepository:
         frame = self._frame(descriptor["key"])
         y = int(np.argmin(np.abs(frame["native_latitudes"] - latitude)))
         x = int(np.argmin(np.abs(frame["native_longitudes"] - longitude)))
+        if not (min(frame["native_latitudes"]) <= latitude <= max(frame["native_latitudes"])
+                and min(frame["native_longitudes"]) <= longitude <= max(frame["native_longitudes"])):
+            raise ValueError("Outside available data coverage")
 
         def native(name: str) -> float:
             value = float(frame[f"native_{name}"][y, x])
@@ -189,6 +192,8 @@ class CloudDataRepository:
             "lng": longitude,
             "lat": latitude,
             "value": round(value, 4),
+            "time": descriptor["time"],
+            "unit": config.unit,
             **{key: round(number, 4) for key, number in extras.items()},
         }
 

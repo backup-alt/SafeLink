@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageOps
 
 from .data_service import DataRepository
 from .pfz_service import PFZService, PFZUnavailable
+from .pfz_nearest import nearest_pfz
 from .cloud_repository import CloudDataRepository, HuggingFaceDataRepository
 from .huggingface_ingest import publish as publish_huggingface
 from .refresh import STATE, refresh_loop
@@ -157,6 +158,21 @@ def pfz():
         return pfz_service.get()
     except PFZUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/api/pfz/nearest")
+def nearest(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+):
+    try:
+        snapshot = pfz_service.get()
+    except PFZUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    result = nearest_pfz(snapshot["data"], longitude, latitude)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No PFZ features in the current advisory")
+    return {**result, "metadata": snapshot["metadata"]}
 
 
 @app.get("/api/field/{layer_id}")

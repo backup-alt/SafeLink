@@ -40,6 +40,10 @@ class DataRepositoryTests(TestCase):
         self.assertGreaterEqual(point["value"], 0.0)
         self.assertIn("period", point)
         self.assertIn("direction", point)
+        self.assertIn("time", point)
+        self.assertEqual("m", point["unit"])
+        with self.assertRaises(ValueError):
+            self.repository.point("waves", latitude=89, longitude=0)
 
     def test_vector_water_geometry_preserves_land_holes(self):
         mask = Image.new("L", (32, 32))

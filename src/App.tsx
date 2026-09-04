@@ -3,9 +3,9 @@ import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
-import { fetchCatalog, fetchField, fetchPFZ, prefetchField } from './api'
+import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, prefetchField } from './api'
 import OceanMap from './OceanMap'
-import type { Catalog, FieldData, Inspection, LayerId, LayerMeta, PFZFeature, PFZResponse } from './types'
+import type { Catalog, ConditionSample, FieldData, Inspection, LayerId, LayerMeta, NearestPFZ, PFZFeature, PFZResponse } from './types'
 
 const LAYER_ICONS = {
   waves: Waves,
@@ -200,6 +200,33 @@ export default function App() {
   const [pfzLoading, setPFZLoading] = useState(true)
   const [pfzError, setPFZError] = useState(false)
   const [selectedPFZ, setSelectedPFZ] = useState<PFZFeature | null>(null)
+  const [mapPoint, setMapPoint] = useState<[number, number] | null>(null)
+  const [nearestOrigin, setNearestOrigin] = useState<[number, number] | null>(null)
+  const [nearest, setNearest] = useState<NearestPFZ | null>(null)
+  const [nearestLoading, setNearestLoading] = useState(false)
+  const [nearestError, setNearestError] = useState<string | null>(null)
+  const [conditions, setConditions] = useState<Partial<Record<LayerId, ConditionSample | null>>>({})
+
+  useEffect(() => {
+    if (!nearestOrigin) { setNearest(null); setNearestLoading(false); setNearestError(null); return }
+    const controller = new AbortController()
+    setNearestLoading(true)
+    setNearest(null)
+    setNearestError(null)
+    setSelectedPFZ(null)
+    setInspection(null)
+    fetchNearestPFZ(nearestOrigin, controller.signal).then((result) => {
+      if (!controller.signal.aborted) { setNearest(result); setPFZEnabled(true) }
+    }).catch((reason: Error) => {
+      if (!controller.signal.aborted) setNearestError(`Nearest PFZ unavailable. ${reason.message}`)
+    }).finally(() => { if (!controller.signal.aborted) setNearestLoading(false) })
+    return () => controller.abort()
+  }, [nearestOrigin, pfz?.data])
+
+  const selectMapPoint = useCallback((point: [number, number]) => {
+    setMapPoint(point)
+    setNearestOrigin(null)
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -263,6 +290,21 @@ export default function App() {
   const selectedTime = times[timeIndex]
 
   useEffect(() => {
+    setConditions({})
+    if (!nearest) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      const ids: LayerId[] = ['temperature', 'chlorophyll', 'waves', 'currents', 'sea_level']
+      ids.forEach((id) => {
+        fetchCondition(id, nearest.point, selectedTime, controller.signal)
+          .then((sample) => { if (!controller.signal.aborted) setConditions((prev) => ({ ...prev, [id]: sample })) })
+          .catch(() => { if (!controller.signal.aborted) setConditions((prev) => ({ ...prev, [id]: null })) })
+      })
+    }, 250)
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [nearest, selectedTime])
+
+  useEffect(() => {
     if (!layer || !selectedTime) return
     const controller = new AbortController()
     const delay = window.setTimeout(() => {
@@ -310,7 +352,7 @@ export default function App() {
     event.preventDefault()
     const coordinates = parseCoordinates(query)
     setSearchError(!coordinates)
-    if (coordinates) setFocusPoint(coordinates)
+    if (coordinates) { setFocusPoint(coordinates); selectMapPoint(coordinates) }
   }
 
   return (
@@ -325,6 +367,8 @@ export default function App() {
         pfz={pfz}
         pfzEnabled={pfzEnabled}
         onPFZInspect={setSelectedPFZ}
+        onMapPoint={selectMapPoint}
+        nearestPFZ={pfzEnabled ? nearest : null}
       />
 
       <header className="topbar glass">
@@ -355,13 +399,40 @@ export default function App() {
           <span>Potential Fishing Zones</span></label>
         <small role="status">{pfzLoading ? 'Loading INCOIS advisory…'
           : !pfz ? 'PFZ unavailable · retrying automatically'
-          : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} zones`}</small>
+          : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} PFZ features`}</small>
         {pfz && <small>Advisory: {pfz.metadata.advisory_date ?? 'Date unavailable'}{pfz.metadata.advisory_dates.length > 1 ? ' (latest; mixed dates)' : ''}</small>}
         {pfz && <small title={pfz.metadata.fetched_at}>Fetched: {new Date(pfz.metadata.fetched_at).toLocaleString('en-IN')}</small>}
+        <button className="nearest-pfz-button" type="button" disabled={!mapPoint || nearestLoading || !pfz}
+          onClick={() => { setNearestOrigin(mapPoint ? [...mapPoint] : null); setPlaying(false) }}>
+          {nearestLoading ? 'Finding nearest PFZ…' : 'Find nearest PFZ'}
+        </button>
+        <small>{mapPoint ? `From ${mapPoint[1].toFixed(3)}°, ${mapPoint[0].toFixed(3)}°` : 'Click the map or search coordinates first.'}</small>
+        {nearestError && <small role="status">{nearestError}</small>}
       </section>
       {layer && <Legend layer={layer} />}
 
-      {selectedPFZ && pfzEnabled && (
+      {nearest && pfzEnabled && (
+        <section className="inspection-card glass nearest-pfz-card" aria-label="Nearest PFZ result">
+          <button type="button" onClick={() => setNearestOrigin(null)} aria-label="Close nearest PFZ"><X size={16} /></button>
+          <div className="inspection-time">Nearest PFZ · INCOIS {nearest.feature.properties.Sno ?? '—'}</div>
+          <strong>{nearest.distance_km.toFixed(1)} km {nearest.bearing_degrees === null ? '(at PFZ)' : `${['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(nearest.bearing_degrees / 45) % 8]} · ${nearest.bearing_degrees.toFixed(0)}° true`}</strong>
+          <small>From {nearest.origin.lat.toFixed(4)}°, {nearest.origin.lng.toFixed(4)}°</small>
+          <small>Nearest point: {nearest.point.lat.toFixed(4)}°, {nearest.point.lng.toFixed(4)}°</small>
+          <small>Advisory: {nearest.feature.properties.advisory_date ?? 'Unknown'}{nearest.metadata.stale || pfz?.metadata.stale || pfzError ? ' · Cached / stale' : ''}</small>
+          <button className="nearest-pfz-button nearest-show-point" type="button" onClick={() => setFocusPoint([nearest.point.lng, nearest.point.lat])}>Show nearest point</button>
+          {(['temperature', 'chlorophyll', 'waves', 'currents', 'sea_level'] as LayerId[]).map((id) => {
+            const sample = conditions[id]
+            return <div className="nearest-condition" key={id}>
+              <div className="inspection-row"><span>{catalog?.layers.find((item) => item.id === id)?.label ?? id}</span>
+                <b>{sample === undefined ? 'Loading…' : sample === null ? 'Unavailable' : `${sample.value.toFixed(2)} ${sample.unit}`}</b></div>
+              {sample && <small>Sample: {formatTime(sample.time)} ({sample.time})</small>}
+            </div>
+          })}
+          <small>Copernicus nearest-grid samples at the nearest available time to the timeline. Direct spherical distance—not a safe sea route or a catch guarantee.</small>
+        </section>
+      )}
+
+      {selectedPFZ && pfzEnabled && !nearest && (
         <section className="inspection-card glass pfz-inspection" aria-label="PFZ advisory information">
           <button type="button" onClick={() => setSelectedPFZ(null)} aria-label="Close PFZ information"><X size={16} /></button>
           <div className="inspection-time">Potential Fishing Zone</div>
@@ -373,7 +444,7 @@ export default function App() {
         </section>
       )}
 
-      {inspection && layer && (
+      {inspection && layer && !nearest && (
         <section className="inspection-card glass">
           <button type="button" onClick={() => setInspection(null)} aria-label="Close values"><X size={16} /></button>
           <div className="inspection-time"><Clock3 size={15} />{field ? formatTime(field.time) : ''}</div>
