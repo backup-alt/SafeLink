@@ -27,6 +27,11 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       data: '/indian-ocean-land.geojson',
       attribution: 'Ocean data © Copernicus Marine · boundaries © Natural Earth',
     },
+    'safelink-land-mask': {
+      type: 'image',
+      url: '/indian-ocean-land-overlay.png',
+      coordinates: [[20, 30], [120, 30], [120, -60], [20, -60]],
+    },
   },
   layers: [
     {
@@ -35,12 +40,13 @@ const BASE_STYLE: maplibregl.StyleSpecification = {
       paint: { 'background-color': '#123b4b' },
     },
     {
-      id: 'safelink-land-fill',
-      type: 'fill',
-      source: 'safelink-land',
+      id: 'safelink-land-mask',
+      type: 'raster',
+      source: 'safelink-land-mask',
       paint: {
-        'fill-color': '#3c4446',
-        'fill-opacity': 1,
+        'raster-opacity': 1,
+        'raster-fade-duration': 0,
+        'raster-resampling': 'linear',
       },
     },
     {
@@ -261,7 +267,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover }: Ocea
           type: 'raster',
           source: 'ocean-field',
           paint: { 'raster-opacity': 1, 'raster-fade-duration': 180, 'raster-resampling': 'linear' },
-        }, 'safelink-land-fill')
+        }, 'safelink-land-mask')
       }
     }
     if (map.isStyleLoaded()) void apply()

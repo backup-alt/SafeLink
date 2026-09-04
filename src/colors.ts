@@ -130,10 +130,6 @@ export async function fieldToDataUrl(
     for (let targetX = 0; targetX < renderWidth; targetX += 1) {
       const offset = (targetY * renderWidth + targetX) * 4
       const longitude = westEdge + ((targetX + .5) / renderWidth) * (eastEdge - westEdge)
-      if (isLandAt(longitude, latitude)) {
-        image.data[offset + 3] = 0
-        continue
-      }
       const sourcePositionX = sourceWidth > 1
         ? Math.max(0, Math.min(sourceWidth - 1, (longitude - longitudes[0]) / (longitudes[sourceWidth - 1] - longitudes[0]) * (sourceWidth - 1)))
         : 0
