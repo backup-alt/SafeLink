@@ -232,6 +232,8 @@ export default function App() {
   const [navOrigin, setNavOrigin] = useState<[number, number] | null>(null)
   const [navDestination, setNavDestination] = useState<[number, number] | null>(null)
   const [navRoute, setNavRoute] = useState<NavRoute | null>(null)
+  const [navRouteAlternatives, setNavRouteAlternatives] = useState<NavRoute[]>([])
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
   const [navLoading, setNavLoading] = useState(false)
   const [navPointLoading, setNavPointLoading] = useState<'origin' | 'destination' | null>(null)
   const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
@@ -689,8 +691,11 @@ export default function App() {
     setNavLoading(true)
     setNavError(null)
     try {
-      const route = await fetchRoute(navOrigin, navDestination, navWaypoints, navSpeed)
-      setNavRoute(route)
+      const result = await fetchRoute(navOrigin, navDestination, navWaypoints, navSpeed)
+      const alternatives = result.alternatives ?? []
+      setNavRouteAlternatives(alternatives)
+      setSelectedRouteIndex(0)
+      setNavRoute(alternatives[0] ?? null)
     } catch { setNavError('Route calculation failed. Check that the backend supports POST requests.') }
     finally { setNavLoading(false) }
   }, [navOrigin, navDestination, navWaypoints, navSpeed])
@@ -744,6 +749,8 @@ export default function App() {
 
   const handleClearRoute = useCallback(() => {
     setNavRoute(null)
+    setNavRouteAlternatives([])
+    setSelectedRouteIndex(0)
     setNavOrigin(null)
     setNavDestination(null)
     setNavOriginDetails(null)
@@ -754,6 +761,11 @@ export default function App() {
     setNavGeocodeResults([])
     setNavGeocodeTarget(null)
   }, [])
+
+  const handleSelectRoute = useCallback((index: number) => {
+    setSelectedRouteIndex(index)
+    setNavRoute(navRouteAlternatives[index] ?? null)
+  }, [navRouteAlternatives])
 
   return (
     <main className="app-shell">
@@ -785,6 +797,8 @@ export default function App() {
           focusPoint={focusPoint}
           onMapClick={handleNauticalClick}
           route={navRoute ? { type: 'Feature', geometry: { type: 'LineString', coordinates: navRoute.coordinates }, properties: {} } : null}
+          alternatives={navRouteAlternatives.map((r) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.coordinates }, properties: { label: r.label } }))}
+          selectedRouteIndex={selectedRouteIndex}
           origin={navOrigin}
           destination={navDestination}
           picking={navPicking}
@@ -948,6 +962,8 @@ export default function App() {
           originDetails={navOriginDetails}
           destinationDetails={navDestinationDetails}
           route={navRoute}
+          alternatives={navRouteAlternatives}
+          selectedRouteIndex={selectedRouteIndex}
           loading={navLoading}
           pointLoading={navPointLoading}
           picking={navPicking}
@@ -962,6 +978,7 @@ export default function App() {
           onUseGeocode={handleUseGeocode}
           onSetRouteMode={handleRouteMode}
           onCalculate={handleCalculateRoute}
+          onSelectRoute={handleSelectRoute}
           onSaveRoute={handleSaveRoute}
           onLoadRoute={handleLoadSavedRoute}
           onDeleteSavedRoute={(id) => setSavedNavRoutes((previous) => previous.filter((saved) => saved.id !== id))}

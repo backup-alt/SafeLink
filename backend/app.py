@@ -346,109 +346,165 @@ def vessels(
         raise HTTPException(status_code=502, detail=f"AIS data unavailable: {error}") from error
 
 
-@app.post("/api/route")
-def calculate_route(body: dict):
-    """Advisory Demo Route — Not Certified for Navigation. Great circle interpolation."""
-    origin = body.get("origin", [0, 0])
-    destination = body.get("destination", [0, 0])
-    waypoints = body.get("waypoints", [])
-    speed_knots = max(1.0, min(50.0, float(body.get("speed_knots", 10))))
+def _haversine_km(lon1, lat1, lon2, lat2):
+    rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
+    rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
+    dlat, dlon = rlat2 - rlat1, rlon2 - rlon1
+    a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
+    return 6371.0088 * 2 * math.asin(math.sqrt(a))
 
-    all_points = [origin] + [list(w) for w in waypoints] + [destination]
 
-    def haversine_km(lon1, lat1, lon2, lat2):
-        rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
-        rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
-        dlat, dlon = rlat2 - rlat1, rlon2 - rlon1
-        a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
-        return 6371.0088 * 2 * math.asin(math.sqrt(a))
+def _bearing_deg(lon1, lat1, lon2, lat2):
+    rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
+    rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
+    y = math.sin(rlon2 - rlon1) * math.cos(rlat2)
+    x = math.cos(rlat1) * math.sin(rlat2) - math.sin(rlat1) * math.cos(rlat2) * math.cos(rlon2 - rlon1)
+    return math.degrees(math.atan2(y, x)) % 360
 
-    def bearing_deg(lon1, lat1, lon2, lat2):
-        rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
-        rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
-        y = math.sin(rlon2 - rlon1) * math.cos(rlat2)
-        x = math.cos(rlat1) * math.sin(rlat2) - math.sin(rlat1) * math.cos(rlat2) * math.cos(rlon2 - rlon1)
-        return math.degrees(math.atan2(y, x)) % 360
 
-    def great_circle_interpolate(lon1, lat1, lon2, lat2, t):
-        rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
-        rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
-        d = 2 * math.asin(math.sqrt(
-            math.sin((rlat2 - rlat1) / 2) ** 2 +
-            math.cos(rlat1) * math.cos(rlat2) * math.sin((rlon2 - rlon1) / 2) ** 2
-        ))
-        if d < 1e-12:
-            return lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t
-        a = math.sin((1 - t) * d) / math.sin(d)
-        b = math.sin(t * d) / math.sin(d)
-        x = a * math.cos(rlat1) * math.cos(rlon1) + b * math.cos(rlat2) * math.cos(rlon2)
-        y = a * math.cos(rlat1) * math.sin(rlon1) + b * math.cos(rlat2) * math.sin(rlon2)
-        z = a * math.sin(rlat1) + b * math.sin(rlat2)
-        lat_out = math.degrees(math.atan2(z, math.sqrt(x ** 2 + y ** 2)))
-        lon_out = math.degrees(math.atan2(y, x))
-        return lon_out, lat_out
+def _great_circle_interpolate(lon1, lat1, lon2, lat2, t):
+    rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
+    rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
+    d = 2 * math.asin(math.sqrt(
+        math.sin((rlat2 - rlat1) / 2) ** 2 +
+        math.cos(rlat1) * math.cos(rlat2) * math.sin((rlon2 - rlon1) / 2) ** 2
+    ))
+    if d < 1e-12:
+        return lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t
+    a = math.sin((1 - t) * d) / math.sin(d)
+    b = math.sin(t * d) / math.sin(d)
+    x = a * math.cos(rlat1) * math.cos(rlon1) + b * math.cos(rlat2) * math.cos(rlon2)
+    y = a * math.cos(rlat1) * math.sin(rlon1) + b * math.cos(rlat2) * math.sin(rlon2)
+    z = a * math.sin(rlat1) + b * math.sin(rlat2)
+    lat_out = math.degrees(math.atan2(z, math.sqrt(x ** 2 + y ** 2)))
+    lon_out = math.degrees(math.atan2(y, x))
+    return lon_out, lat_out
 
-    def water_point(point):
-        try:
-            return not _land_geometry().covers(Point(point[0], point[1]))
-        except Exception:
+
+def _water_point(point):
+    try:
+        return not _land_geometry().covers(Point(point[0], point[1]))
+    except Exception:
+        return True
+
+
+def _water_segment(p1, p2):
+    try:
+        land = _land_geometry()
+        line = LineString([p1, p2])
+        if not line.intersects(land):
             return True
+        dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+        samples = max(24, min(120, int(dist / 4)))
+        for index in range(1, samples):
+            t = index / samples
+            if t < 0.02 or t > 0.98:
+                continue
+            lon, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
+            if land.covers(Point(lon, lat)):
+                return False
+        return True
+    except Exception:
+        return True
 
-    def water_segment(p1, p2):
-        try:
-            land = _land_geometry()
-            line = LineString([p1, p2])
-            if not line.intersects(land):
-                return True
-            # Ports and clicked coastline points can sit exactly on land in coarse
-            # polygons, so ignore tiny endpoint contact and test the travelled leg.
-            samples = max(18, min(72, int(haversine_km(p1[0], p1[1], p2[0], p2[1]) / 8)))
-            for index in range(1, samples):
-                t = index / samples
-                if t < 0.035 or t > 0.965:
-                    continue
-                lon, lat = great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
-                if land.covers(Point(lon, lat)):
-                    return False
-            return True
-        except Exception:
-            return True
+
+def _perpendicular_offset(lon1, lat1, lon2, lat2, distance_km, direction):
+    mid_lon = (lon1 + lon2) / 2
+    mid_lat = (lat1 + lat2) / 2
+    heading = math.radians(_bearing_deg(lon1, lat1, lon2, lat2))
+    if direction == 'right':
+        perp = heading - math.pi / 2
+    else:
+        perp = heading + math.pi / 2
+    delta_lat = distance_km * math.cos(perp) / 111.32
+    delta_lon = distance_km * math.sin(perp) / (111.32 * math.cos(math.radians(mid_lat)))
+    return [round(mid_lon + delta_lon, 5), round(mid_lat + delta_lat, 5)]
+
+
+def _plan_single_route(all_points, prefer_direction=None):
+    land = _land_geometry()
 
     def path_distance(points):
-        return sum(haversine_km(a[0], a[1], b[0], b[1]) for a, b in zip(points, points[1:]))
+        return sum(_haversine_km(a[0], a[1], b[0], b[1]) for a, b in zip(points, points[1:]))
+
+    def find_land_crossings(p1, p2):
+        dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+        samples = max(24, min(120, int(dist / 4)))
+        crossings = []
+        prev_on_land = False
+        for i in range(samples + 1):
+            t = i / samples
+            lon, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
+            on_land = land.covers(Point(lon, lat))
+            if on_land and not prev_on_land:
+                crossings.append(t)
+            prev_on_land = on_land
+        return crossings
 
     def detour_candidates(p1, p2):
-        try:
-            intersection = LineString([p1, p2]).intersection(_land_geometry())
-            minx, miny, maxx, maxy = intersection.bounds if not intersection.is_empty else LineString([p1, p2]).bounds
-        except Exception:
-            minx, miny, maxx, maxy = LineString([p1, p2]).bounds
-
+        dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+        crossings = find_land_crossings(p1, p2)
         candidates = []
-        for margin in (0.18, 0.35, 0.6, 1.0, 1.6, 2.4, 3.4, 5.0):
-            west, east = minx - margin, maxx + margin
-            south, north = miny - margin, maxy + margin
-            raw = [
-                [west, south], [west, north], [east, south], [east, north],
-                [(west + east) / 2, south], [(west + east) / 2, north],
-                [west, (south + north) / 2], [east, (south + north) / 2],
-            ]
-            for point in raw:
-                if -180 <= point[0] <= 180 and -90 <= point[1] <= 90 and water_point(point):
-                    rounded = [round(point[0], 5), round(point[1], 5)]
-                    if rounded not in candidates:
-                        candidates.append(rounded)
+        if crossings:
+            for t in crossings:
+                mid_lon, mid_lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
+                offsets = [d * (dist / 200 + 0.5) for d in [10, 25, 50, 100, 200]]
+                for d in offsets:
+                    left = _perpendicular_offset(p1[0], p1[1], p2[0], p2[1], d, 'left')
+                    right = _perpendicular_offset(p1[0], p1[1], p2[0], p2[1], d, 'right')
+                    for c in [left, right]:
+                        if _water_point(c) and c not in candidates:
+                            candidates.append(c)
+            try:
+                intersection = LineString([p1, p2]).intersection(land)
+                if not intersection.is_empty:
+                    bounds = intersection.bounds
+                    for step in range(8):
+                        t = step / 7
+                        bx = bounds[0] + t * (bounds[2] - bounds[0])
+                        by = bounds[1] + t * (bounds[3] - bounds[1])
+                        for offset_km in [15, 30, 60, 120]:
+                            for angle_offset in [-0.5, 0, 0.5]:
+                                heading = _bearing_deg(p1[0], p1[1], p2[0], p2[1])
+                                perp_heading = math.radians(heading + 90 + math.degrees(angle_offset))
+                                dlat = offset_km * math.cos(perp_heading) / 111.32
+                                dlon = offset_km * math.sin(perp_heading) / (111.32 * max(0.01, math.cos(math.radians(by))))
+                                cand = [round(bx + dlon, 5), round(by + dlat, 5)]
+                                if _water_point(cand) and cand not in candidates:
+                                    candidates.append(cand)
+            except Exception:
+                pass
+        else:
+            for margin in (0.5, 1.0, 2.0, 4.0):
+                try:
+                    bounds = LineString([p1, p2]).bounds
+                except Exception:
+                    continue
+                west, east = bounds[0] - margin, bounds[2] + margin
+                south, north = bounds[1] - margin, bounds[3] + margin
+                for point in [
+                    [west, south], [west, north], [east, south], [east, north],
+                    [(west + east) / 2, south], [(west + east) / 2, north],
+                    [west, (south + north) / 2], [east, (south + north) / 2],
+                ]:
+                    if -180 <= point[0] <= 180 and -90 <= point[1] <= 90 and _water_point(point):
+                        rounded = [round(point[0], 5), round(point[1], 5)]
+                        if rounded not in candidates:
+                            candidates.append(rounded)
+        if prefer_direction == 'left' and candidates:
+            candidates.sort(key=lambda c: c[0], reverse=True)
+        elif prefer_direction == 'right' and candidates:
+            candidates.sort(key=lambda c: c[0])
         return candidates
 
     def plan_water_leg(p1, p2):
-        if water_segment(p1, p2):
+        if _water_segment(p1, p2):
             return [p1, p2], False
-
         candidates = detour_candidates(p1, p2)
         best = None
         for candidate in candidates:
             path = [p1, candidate, p2]
-            if all(water_segment(a, b) for a, b in zip(path, path[1:])):
+            if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
                 if best is None or path_distance(path) < path_distance(best):
                     best = path
         for first in candidates:
@@ -456,7 +512,7 @@ def calculate_route(body: dict):
                 if first == second:
                     continue
                 path = [p1, first, second, p2]
-                if all(water_segment(a, b) for a, b in zip(path, path[1:])):
+                if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
                     if best is None or path_distance(path) < path_distance(best):
                         best = path
         return (best, True) if best else ([p1, p2], False)
@@ -468,11 +524,13 @@ def calculate_route(body: dict):
         leg_path, detoured = plan_water_leg(p1, p2)
         if detoured:
             inserted_detours += max(0, len(leg_path) - 2)
-        elif not water_segment(p1, p2):
+        elif not _water_segment(p1, p2):
             unresolved_land_crossings += 1
         planned_points.extend(leg_path[1:])
-    all_points = planned_points
+    return planned_points, inserted_detours, unresolved_land_crossings
 
+
+def _build_route_response(all_points, speed_knots, inserted_detours, unresolved_land_crossings, label=""):
     legs = []
     total_distance = 0.0
     all_route_coords = []
@@ -480,13 +538,13 @@ def calculate_route(body: dict):
 
     for i in range(len(all_points) - 1):
         p1, p2 = all_points[i], all_points[i + 1]
-        leg_dist = haversine_km(p1[0], p1[1], p2[0], p2[1])
-        leg_heading = bearing_deg(p1[0], p1[1], p2[0], p2[1])
+        leg_dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+        leg_heading = _bearing_deg(p1[0], p1[1], p2[0], p2[1])
         steps = max(10, min(40, int(leg_dist / 30)))
         leg_coords = []
         for s in range(steps + 1):
             t = s / steps
-            lng, lat = great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
+            lng, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
             coord = [round(lng, 5), round(lat, 5)]
             leg_coords.append(coord)
             if s > 0 or i == 0:
@@ -517,7 +575,7 @@ def calculate_route(body: dict):
         })
 
     eta_hours = total_distance / (speed_knots * 1.852)
-    initial_heading = bearing_deg(all_points[0][0], all_points[0][1], all_points[1][0], all_points[1][1]) if len(all_points) > 1 else 0
+    initial_heading = _bearing_deg(all_points[0][0], all_points[0][1], all_points[1][0], all_points[1][1]) if len(all_points) > 1 else 0
 
     warnings = []
     if inserted_detours:
@@ -544,8 +602,7 @@ def calculate_route(body: dict):
         })
 
     try:
-        mid_idx = len(all_route_coords) // 2
-        mid_coord = all_route_coords[mid_idx]
+        mid_coord = all_route_coords[len(all_route_coords) // 2]
         wave_data = repository.point("waves", mid_coord[1], mid_coord[0])
         wave_height = wave_data.get("value", 0)
         if wave_height > 4.0:
@@ -588,6 +645,7 @@ def calculate_route(body: dict):
         })
 
     return {
+        "label": label,
         "coordinates": all_route_coords,
         "distance_km": round(total_distance, 1),
         "eta_hours": round(eta_hours, 1),
@@ -597,6 +655,31 @@ def calculate_route(body: dict):
         "distance_labels": distance_labels,
         "speed_knots": speed_knots,
     }
+
+
+@app.post("/api/route")
+def calculate_route(body: dict):
+    """Advisory Demo Route — Not Certified for Navigation. Returns 3 route alternatives."""
+    origin = body.get("origin", [0, 0])
+    destination = body.get("destination", [0, 0])
+    waypoints = body.get("waypoints", [])
+    speed_knots = max(1.0, min(50.0, float(body.get("speed_knots", 10))))
+
+    all_points = [origin] + [list(w) for w in waypoints] + [destination]
+
+    plans = [
+        ("Shortest", None),
+        ("Western", "left"),
+        ("Eastern", "right"),
+    ]
+
+    alternatives = []
+    for label, prefer in plans:
+        planned, inserted, unresolved = _plan_single_route(list(all_points), prefer_direction=prefer)
+        route = _build_route_response(planned, speed_knots, inserted, unresolved, label=label)
+        alternatives.append(route)
+
+    return {"alternatives": alternatives}
 
 
 LAYERS_FOR_CLICK = ["waves", "currents", "temperature", "sea_level", "chlorophyll"]

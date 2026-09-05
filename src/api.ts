@@ -72,7 +72,7 @@ export const fetchRoute = async (
     signal,
   })
   if (!response.ok) throw new Error(`Route calculation failed: ${response.status}`)
-  return response.json() as Promise<NavRoute>
+  return response.json() as Promise<{ alternatives: NavRoute[] }>
 }
 
 export const fetchNauticalClick = (lng: number, lat: number, signal?: AbortSignal) =>

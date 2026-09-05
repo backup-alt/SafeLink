@@ -14,6 +14,8 @@ interface NauticalChartProps {
   focusPoint: [number, number] | null
   onMapClick?: (point: [number, number]) => void
   route: { type: string; geometry: { type: string; coordinates: [number, number][] }; properties: Record<string, unknown> } | null
+  alternatives: { type: string; geometry: { type: string; coordinates: [number, number][] }; properties: Record<string, unknown> }[]
+  selectedRouteIndex: number
   origin: [number, number] | null
   destination: [number, number] | null
   picking: 'origin' | 'destination' | 'waypoint' | null
@@ -24,7 +26,7 @@ interface NauticalChartProps {
   weatherPoints: { position: [number, number]; waves: number | null; current: number | null }[]
 }
 
-function NauticalChart({ center, zoom, onCenterChange, focusPoint, onMapClick, route, origin, destination, picking, waypoints, distanceLabels, vessels, onVesselSelect, weatherPoints }: NauticalChartProps) {
+function NauticalChart({ center, zoom, onCenterChange, focusPoint, onMapClick, route, alternatives, selectedRouteIndex, origin, destination, picking, waypoints, distanceLabels, vessels, onVesselSelect, weatherPoints }: NauticalChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -132,40 +134,61 @@ function NauticalChart({ center, zoom, onCenterChange, focusPoint, onMapClick, r
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !route) return
+    if (!map) return
+    const routeColors = ['#5cf2ed', '#ffd166', '#7ec8e3']
     const apply = () => {
-      const source = map.getSource('nav-route') as maplibregl.GeoJSONSource | undefined
-      if (source) {
-        source.setData(route)
-      } else {
-        map.addSource('nav-route', { type: 'geojson', data: route })
+      for (let idx = 0; idx < 3; idx++) {
+        const srcId = `nav-route-${idx}`
+        const casingId = `nav-route-casing-${idx}`
+        const lineId = `nav-route-line-${idx}`
+        const existing = map.getSource(srcId)
+        if (existing) map.removeSource(srcId)
+        if (map.getLayer(lineId)) map.removeLayer(lineId)
+        if (map.getLayer(casingId)) map.removeLayer(casingId)
+      }
+      alternatives.forEach((r, idx) => {
+        const srcId = `nav-route-${idx}`
+        const casingId = `nav-route-casing-${idx}`
+        const lineId = `nav-route-line-${idx}`
+        const isActive = idx === selectedRouteIndex
+        map.addSource(srcId, { type: 'geojson', data: r })
         map.addLayer({
-          id: 'nav-route-casing',
+          id: casingId,
           type: 'line',
-          source: 'nav-route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#0e171b', 'line-width': ['interpolate', ['linear'], ['zoom'], 2, 5, 11, 11] },
-        })
-        map.addLayer({
-          id: 'nav-route-line',
-          type: 'line',
-          source: 'nav-route',
+          source: srcId,
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#5cf2ed',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 3, 11, 7],
+            'line-color': '#0e171b',
+            'line-width': isActive ? ['interpolate', ['linear'], ['zoom'], 2, 5, 11, 11] : ['interpolate', ['linear'], ['zoom'], 2, 2, 11, 4],
+            'line-opacity': isActive ? 1 : 0.5,
           },
         })
-      }
+        map.addLayer({
+          id: lineId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': routeColors[idx] || '#5cf2ed',
+            'line-width': isActive ? ['interpolate', ['linear'], ['zoom'], 2, 3, 11, 7] : ['interpolate', ['linear'], ['zoom'], 2, 1, 11, 3],
+            'line-opacity': isActive ? 1 : 0.4,
+          },
+        })
+      })
     }
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
     return () => {
-      if (map.getLayer('nav-route-line')) map.removeLayer('nav-route-line')
-      if (map.getLayer('nav-route-casing')) map.removeLayer('nav-route-casing')
-      if (map.getSource('nav-route')) map.removeSource('nav-route')
+      for (let idx = 0; idx < 3; idx++) {
+        const lineId = `nav-route-line-${idx}`
+        const casingId = `nav-route-casing-${idx}`
+        const srcId = `nav-route-${idx}`
+        if (map.getLayer(lineId)) map.removeLayer(lineId)
+        if (map.getLayer(casingId)) map.removeLayer(casingId)
+        if (map.getSource(srcId)) map.removeSource(srcId)
+      }
     }
-  }, [route])
+  }, [alternatives, selectedRouteIndex])
 
   useEffect(() => {
     const map = mapRef.current
