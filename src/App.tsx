@@ -3,12 +3,17 @@ import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
-import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, prefetchField } from './api'
+import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, fetchNauticalClick, fetchNauticalPoint, fetchRoute, fetchVessels, prefetchField, searchPlaces } from './api'
 import OceanMap from './OceanMap'
 import ChatPanel from './ChatPanel'
 import { isMapAction } from './chatTypes'
+import NauticalChart from './NauticalChart'
+import VesselFinder from './VesselFinder'
+import VesselDetails from './VesselDetails'
+import MapViewSwitcher from './MapViewSwitcher'
+import NavigationPanel from './NavigationPanel'
 import type { MapAction, MapContext } from './chatTypes'
-import type { Catalog, ConditionSample, FieldData, Inspection, LayerId, LayerMeta, NearestPFZ, OriginLocation, PFZFeature, PFZResponse } from './types'
+import type { Catalog, ConditionSample, FieldData, GeocodeResult, Inspection, LayerId, LayerMeta, MapView, NauticalPointDetails, NavRoute, NearestPFZ, OriginLocation, PFZFeature, PFZResponse, SavedNavRoute, Vessel } from './types'
 
 const LAYER_ICONS = {
   waves: Waves,
@@ -204,11 +209,11 @@ export default function App() {
   const [pfzError, setPFZError] = useState(false)
   const [selectedPFZ, setSelectedPFZ] = useState<PFZFeature | null>(null)
   const [clickedLocation, setClickedLocation] = useState<MapContext['clicked_location']>(null)
-  const [mapView, setMapView] = useState<{ center: MapContext['center']; zoom: number }>({ center: null, zoom: 4 })
+  const [mapContext, setMapContext] = useState<{ center: MapContext['center']; zoom: number }>({ center: null, zoom: 4 })
   const [mapCommand, setMapCommand] = useState<{ id: number; action: MapAction } | null>(null)
   const layerRef = useRef<LayerId>(selectedLayer)
   layerRef.current = selectedLayer
-  const updateMapView = useCallback((view: { center: MapContext['center']; zoom: number }) => setMapView(view), [])
+  const updateMapContext = useCallback((view: { center: MapContext['center']; zoom: number }) => setMapContext(view), [])
   const [nearestOrigin, setNearestOrigin] = useState<[number, number] | null>(null)
   const [nearest, setNearest] = useState<NearestPFZ | null>(null)
   const [nearestLoading, setNearestLoading] = useState(false)
@@ -220,6 +225,68 @@ export default function App() {
   const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('chat')
   const locationRequest = useRef(0)
   const locationHeading = useRef<HTMLHeadingElement>(null)
+
+  const [mapView, setMapView] = useState<MapView>('ocean')
+  const [mapCenter, setMapCenter] = useState<[number, number]>([75, 10])
+  const [mapZoom, setMapZoom] = useState(4)
+  const [navOrigin, setNavOrigin] = useState<[number, number] | null>(null)
+  const [navDestination, setNavDestination] = useState<[number, number] | null>(null)
+  const [navRoute, setNavRoute] = useState<NavRoute | null>(null)
+  const [navLoading, setNavLoading] = useState(false)
+  const [navPointLoading, setNavPointLoading] = useState<'origin' | 'destination' | null>(null)
+  const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
+  const [navPicking, setNavPicking] = useState<'origin' | 'destination' | 'waypoint' | null>(null)
+  const [nauticalInfo, setNauticalInfo] = useState<{ coordinates: { lng: number; lat: number }; conditions: Record<string, { value: number; unit: string; time: string } | null> } | null>(null)
+  const [navWaypoints, setNavWaypoints] = useState<[number, number][]>([])
+  const [navSpeed, setNavSpeed] = useState(10)
+  const [navError, setNavError] = useState<string | null>(null)
+  const [navRouteMode, setNavRouteMode] = useState<'auto' | 'manual' | null>(null)
+  const [navOriginDetails, setNavOriginDetails] = useState<NauticalPointDetails | null>(null)
+  const [navDestinationDetails, setNavDestinationDetails] = useState<NauticalPointDetails | null>(null)
+  const [savedNavRoutes, setSavedNavRoutes] = useState<SavedNavRoute[]>([])
+  const [navGeocodeResults, setNavGeocodeResults] = useState<GeocodeResult[]>([])
+  const [navGeocodeTarget, setNavGeocodeTarget] = useState<'origin' | 'destination' | null>(null)
+  const [navGeocodeLoading, setNavGeocodeLoading] = useState(false)
+  const [nauticalVessels, setNauticalVessels] = useState<Vessel[]>([])
+  const [showWeatherOverlay, setShowWeatherOverlay] = useState(false)
+  const [weatherPoints, setWeatherPoints] = useState<{ position: [number, number]; waves: number | null; current: number | null }[]>([])
+
+  useEffect(() => {
+    if (mapView !== 'nautical') return
+    let active = true
+    const load = () => {
+      const [lng, lat] = mapCenter
+      const half = 5 / Math.pow(2, mapZoom - 4)
+      fetchVessels({
+        west: lng - half, south: lat - half,
+        east: lng + half, north: lat + half,
+      }).then((data) => { if (active) setNauticalVessels(data) }).catch(() => {})
+    }
+    load()
+    const interval = setInterval(load, 30000)
+    return () => { active = false; clearInterval(interval) }
+  }, [mapView, mapCenter[0], mapCenter[1], Math.round(mapZoom)])
+
+  useEffect(() => {
+    if (!showWeatherOverlay || !navRoute || mapView !== 'nautical') { setWeatherPoints([]); return }
+    let active = true
+    const coords = navRoute.coordinates
+    const step = Math.max(1, Math.floor(coords.length / 8))
+    const samplePoints = coords.filter((_, i) => i % step === 0 || i === coords.length - 1)
+    Promise.all(samplePoints.map(async (pos) => {
+      try {
+        const detail = await fetchNauticalPoint(pos)
+        return {
+          position: pos,
+          waves: detail.wave_height?.value ?? null,
+          current: detail.current?.value ?? null,
+        }
+      } catch {
+        return { position: pos, waves: null, current: null }
+      }
+    })).then((points) => { if (active) setWeatherPoints(points) })
+    return () => { active = false }
+  }, [showWeatherOverlay, navRoute, mapView])
 
   const cancelLocation = useCallback(() => {
     locationRequest.current += 1
@@ -437,6 +504,7 @@ export default function App() {
     switch (action.type) {
       case 'select_layer': {
         if (!catalog?.layers.find(x => x.id === action.layer)?.available) throw new Error('Layer unavailable')
+        setMapView('ocean')
         chooseLayer(action.layer)
         return `Showing ${action.layer.replace('_', ' ')}`
       }
@@ -461,15 +529,18 @@ export default function App() {
         setMapCommand({ id: Date.now(), action })
         return 'Cleared assistant map highlights'
       case 'request_location':
+        setMapView('ocean')
         openLocationPicker()
         setLocationPurpose('chat')
         return 'Location chooser opened. Choose and confirm a position, then send your next message.'
       case 'zoom_in': case 'zoom_out':
-        if (!mapView.center) return 'Map view is not ready yet'
-        setMapCommand({ id: Date.now(), action: { type: 'fly_to', ...mapView.center,
-          zoom: Math.max(2, Math.min(14, mapView.zoom + (action.type === 'zoom_in' ? 1 : -1))) } })
+        setMapView('ocean')
+        if (!mapContext.center) return 'Map view is not ready yet'
+        setMapCommand({ id: Date.now(), action: { type: 'fly_to', ...mapContext.center,
+          zoom: Math.max(2, Math.min(14, mapContext.zoom + (action.type === 'zoom_in' ? 1 : -1))) } })
         return action.type === 'zoom_in' ? 'Zoomed in one level' : 'Zoomed out one level'
       case 'fly_to': case 'place_marker':
+        setMapView('ocean')
         setMapCommand({ id: Date.now(), action })
         return action.type === 'fly_to' ? 'Moved map to the requested point' : 'Placed a map marker'
     }
@@ -486,30 +557,257 @@ export default function App() {
     }
   }
 
+  const handleMapViewChange = useCallback((view: MapView) => {
+    setMapView(view)
+    setInspection(null)
+    setHover(null)
+    setSelectedPFZ(null)
+    setSelectedVessel(null)
+    setNauticalInfo(null)
+    setNavPicking(null)
+    setNavError(null)
+    setNavWaypoints([])
+    setNavSpeed(10)
+    setShowWeatherOverlay(false)
+    setWeatherPoints([])
+  }, [])
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('safelink.nav.routes') || '[]') as SavedNavRoute[]
+      if (Array.isArray(saved)) setSavedNavRoutes(saved)
+    } catch {
+      setSavedNavRoutes([])
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('safelink.nav.routes', JSON.stringify(savedNavRoutes))
+  }, [savedNavRoutes])
+
+  const handleMapContextChange = useCallback((center: [number, number], zoom: number) => {
+    setMapCenter(center)
+    setMapZoom(zoom)
+  }, [])
+
+  const loadNauticalDetails = useCallback(async (type: 'origin' | 'destination', point: [number, number]) => {
+    const controller = new AbortController()
+    setNavPointLoading(type)
+    try {
+      const details = await fetchNauticalPoint(point, controller.signal)
+      if (type === 'origin') setNavOriginDetails(details)
+      else setNavDestinationDetails(details)
+    } catch {
+      if (type === 'origin') setNavOriginDetails(null)
+      else setNavDestinationDetails(null)
+      setNavError('Marine point data is unavailable for that position.')
+    } finally {
+      setNavPointLoading((current) => current === type ? null : current)
+    }
+  }, [])
+
+  const setNavigationPoint = useCallback((type: 'origin' | 'destination', point: [number, number]) => {
+    if (type === 'origin') {
+      setNavOrigin(point)
+      setNavOriginDetails(null)
+    } else {
+      setNavDestination(point)
+      setNavDestinationDetails(null)
+    }
+    setFocusPoint(point)
+    setNavRoute(null)
+    setNavRouteMode(null)
+    setNavPicking(null)
+    setNavGeocodeResults([])
+    setNavGeocodeTarget(null)
+    setNavError(null)
+    void loadNauticalDetails(type, point)
+  }, [loadNauticalDetails])
+
+  const handleNavCurrentLocation = useCallback(() => {
+    setNavError(null)
+    if (!window.isSecureContext || !navigator.geolocation) {
+      setNavError('Device location is unavailable here. Use localhost/HTTPS or select the origin on the map.')
+      return
+    }
+    setNavPointLoading('origin')
+    navigator.geolocation.getCurrentPosition((position) => {
+      const point: [number, number] = [position.coords.longitude, position.coords.latitude]
+      setNavigationPoint('origin', point)
+    }, () => {
+      setNavPointLoading(null)
+      setNavError('Could not read device location. Select the origin on the map or search coordinates.')
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
+  }, [setNavigationPoint])
+
+  const handleNavSearchPoint = useCallback(async (type: 'origin' | 'destination', value: string) => {
+    const queryText = value.trim()
+    if (!queryText) return
+    const coordinates = parseCoordinates(queryText)
+    if (coordinates) {
+      setNavigationPoint(type, coordinates)
+      return
+    }
+    setNavGeocodeTarget(type)
+    setNavGeocodeLoading(true)
+    setNavError(null)
+    try {
+      const results = await searchPlaces(queryText)
+      setNavGeocodeResults(results)
+      if (!results.length) setNavError('No matching location found. Try coordinates or a clearer place name.')
+    } catch {
+      setNavGeocodeResults([])
+      setNavError('Location search is unavailable right now.')
+    } finally {
+      setNavGeocodeLoading(false)
+    }
+  }, [setNavigationPoint])
+
+  const handleUseGeocode = useCallback((type: 'origin' | 'destination', result: GeocodeResult) => {
+    setNavigationPoint(type, [result.longitude, result.latitude])
+  }, [setNavigationPoint])
+
+  const handleNauticalClick = useCallback(async (point: [number, number]) => {
+    if (navPicking === 'origin') { setNavigationPoint('origin', point); return }
+    if (navPicking === 'destination') { setNavigationPoint('destination', point); return }
+    if (navPicking === 'waypoint') {
+      setNavWaypoints((prev) => [...prev, point])
+      setNavRoute(null)
+      setNavPicking(null)
+      setNavError(null)
+      return
+    }
+    setNavError(null)
+    try {
+      const result = await fetchNauticalClick(point[0], point[1])
+      setNauticalInfo(result)
+    } catch { setNauticalInfo(null); setNavError('Failed to fetch marine conditions. Is the backend running?') }
+  }, [navPicking, setNavigationPoint])
+
+  const handleCalculateRoute = useCallback(async () => {
+    if (!navOrigin || !navDestination) return
+    setNavLoading(true)
+    setNavError(null)
+    try {
+      const route = await fetchRoute(navOrigin, navDestination, navWaypoints, navSpeed)
+      setNavRoute(route)
+    } catch { setNavError('Route calculation failed. Check that the backend supports POST requests.') }
+    finally { setNavLoading(false) }
+  }, [navOrigin, navDestination, navWaypoints, navSpeed])
+
+  const handleRouteMode = useCallback((mode: 'auto' | 'manual') => {
+    setNavRouteMode(mode)
+    setNavRoute(null)
+    setNavError(null)
+    if (mode === 'auto') {
+      setNavPicking(null)
+      setShowWeatherOverlay(true)
+      window.setTimeout(() => void handleCalculateRoute(), 0)
+    } else {
+      setNavPicking('waypoint')
+    }
+  }, [handleCalculateRoute])
+
+  const handleSaveRoute = useCallback(() => {
+    if (!navRoute || !navOrigin || !navDestination) return
+    const saved: SavedNavRoute = {
+      id: `${Date.now()}`,
+      name: `${navOrigin[1].toFixed(2)}, ${navOrigin[0].toFixed(2)} to ${navDestination[1].toFixed(2)}, ${navDestination[0].toFixed(2)}`,
+      savedAt: new Date().toISOString(),
+      origin: navOrigin,
+      destination: navDestination,
+      waypoints: navWaypoints,
+      speed_knots: navSpeed,
+      distance_km: navRoute.distance_km,
+      eta_hours: navRoute.eta_hours,
+      heading: navRoute.heading,
+      route: navRoute,
+      originDetails: navOriginDetails,
+      destinationDetails: navDestinationDetails,
+    }
+    setSavedNavRoutes((previous) => [saved, ...previous].slice(0, 12))
+  }, [navDestination, navDestinationDetails, navOrigin, navOriginDetails, navRoute, navSpeed, navWaypoints])
+
+  const handleLoadSavedRoute = useCallback((saved: SavedNavRoute) => {
+    setNavOrigin(saved.origin)
+    setNavDestination(saved.destination)
+    setNavWaypoints(saved.waypoints)
+    setNavSpeed(saved.speed_knots)
+    setNavRoute(saved.route)
+    setNavRouteMode('auto')
+    setNavOriginDetails(saved.originDetails)
+    setNavDestinationDetails(saved.destinationDetails)
+    setFocusPoint(saved.origin)
+    setShowWeatherOverlay(true)
+    setNavError(null)
+  }, [])
+
+  const handleClearRoute = useCallback(() => {
+    setNavRoute(null)
+    setNavOrigin(null)
+    setNavDestination(null)
+    setNavOriginDetails(null)
+    setNavDestinationDetails(null)
+    setNavWaypoints([])
+    setNavRouteMode(null)
+    setNavPicking(null)
+    setNavGeocodeResults([])
+    setNavGeocodeTarget(null)
+  }, [])
+
   return (
     <main className="app-shell">
-      <OceanMap
-        field={field}
-        layer={layer}
-        region={catalog?.region ?? null}
-        focusPoint={focusPoint}
-        onInspect={setInspection}
-        onHover={updateHover}
-        pfz={pfz}
-        pfzEnabled={pfzEnabled}
-        onPFZInspect={setSelectedPFZ}
-        onMapPoint={selectMapPoint}
-        nearestPFZ={pfzEnabled ? nearest : null}
-        originLocation={originLocation}
-        pickingLocation={!!locationStep && locationStep !== 'confirm'}
-        selectedPFZId={pfzEnabled ? selectedPFZ?.id ?? null : null}
-        onViewChange={updateMapView}
-        mapCommand={mapCommand}
-      />
+      {mapView === 'ocean' && (
+        <OceanMap
+          field={field}
+          layer={layer}
+          region={catalog?.region ?? null}
+          focusPoint={focusPoint}
+          onInspect={setInspection}
+          onHover={updateHover}
+          pfz={pfz}
+          pfzEnabled={pfzEnabled}
+          onPFZInspect={setSelectedPFZ}
+          onMapPoint={selectMapPoint}
+          nearestPFZ={pfzEnabled ? nearest : null}
+          originLocation={originLocation}
+          pickingLocation={!!locationStep && locationStep !== 'confirm'}
+          selectedPFZId={pfzEnabled ? selectedPFZ?.id ?? null : null}
+          onViewChange={updateMapContext}
+          mapCommand={mapCommand}
+        />
+      )}
+      {mapView === 'nautical' && (
+        <NauticalChart
+          center={mapCenter}
+          zoom={mapZoom}
+          onCenterChange={handleMapContextChange}
+          focusPoint={focusPoint}
+          onMapClick={handleNauticalClick}
+          route={navRoute ? { type: 'Feature', geometry: { type: 'LineString', coordinates: navRoute.coordinates }, properties: {} } : null}
+          origin={navOrigin}
+          destination={navDestination}
+          picking={navPicking}
+          waypoints={navWaypoints}
+          distanceLabels={navRoute?.distance_labels ?? []}
+          vessels={nauticalVessels}
+          onVesselSelect={setSelectedVessel}
+          weatherPoints={showWeatherOverlay ? weatherPoints : []}
+        />
+      )}
+      {mapView === 'vessels' && (
+        <VesselFinder
+          center={mapCenter}
+          zoom={mapZoom}
+          onCenterChange={handleMapContextChange}
+          onVesselSelect={setSelectedVessel}
+        />
+      )}
 
       <header className="topbar glass">
         <button className="menu-button" type="button" aria-label="Menu"><Menu size={22} /></button>
         <div className="brand"><span className="brand-mark">S</span><div><b>SAFE<span>LINK</span></b><small>OCEAN CONDITIONS</small></div></div>
+        <MapViewSwitcher current={mapView} onChange={handleMapViewChange} />
         <form className={`search ${searchError ? 'invalid' : ''}`} onSubmit={search}>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Coordinates: 12.6, 80.4 or 12°N 80°E" aria-label="Search latitude and longitude" />
           <button type="submit" aria-label="Search coordinates"><Search size={19} /></button>
@@ -527,31 +825,33 @@ export default function App() {
         </section>
       )}
 
-      {catalog && <LayerRail layers={catalog.layers} selected={selectedLayer} onSelect={chooseLayer} />}
-      <section className="overlay-control glass" aria-label="Map overlays">
-        <div className="rail-heading">Overlays</div>
-        <label><input type="checkbox" checked={pfzEnabled && !!pfz} disabled={!pfz}
-          onChange={(event) => { setPFZEnabled(event.target.checked); setSelectedPFZ(null) }} />
-          <span>Potential Fishing Zones</span></label>
-        <small role="status">{pfzLoading ? 'Loading INCOIS advisory…'
-          : !pfz ? 'PFZ unavailable · retrying automatically'
-          : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} PFZ features`}</small>
-        {pfz && <small>Advisory: {pfz.metadata.advisory_date ?? 'Date unavailable'}{pfz.metadata.advisory_dates.length > 1 ? ' (latest; mixed dates)' : ''}</small>}
-        {pfz && <small title={pfz.metadata.fetched_at}>Fetched: {new Date(pfz.metadata.fetched_at).toLocaleString('en-IN')}</small>}
-        <button className="nearest-pfz-button" type="button" disabled={nearestLoading}
-          onClick={openLocationPicker}>
-          {nearestLoading ? 'Finding nearest PFZ…' : 'Find nearest PFZ'}
-        </button>
-        <small>Choose your starting location in the next step.</small>
-        {nearestError && <small role="status">{nearestError}</small>}
-      </section>
-      {layer && <Legend layer={layer} />}
+      {mapView === 'ocean' && catalog && <LayerRail layers={catalog.layers} selected={selectedLayer} onSelect={chooseLayer} />}
+      {mapView === 'ocean' && (
+        <section className="overlay-control glass" aria-label="Map overlays">
+          <div className="rail-heading">Overlays</div>
+          <label><input type="checkbox" checked={pfzEnabled && !!pfz} disabled={!pfz}
+            onChange={(event) => { setPFZEnabled(event.target.checked); setSelectedPFZ(null) }} />
+            <span>Potential Fishing Zones</span></label>
+          <small role="status">{pfzLoading ? 'Loading INCOIS advisory…'
+            : !pfz ? 'PFZ unavailable · retrying automatically'
+            : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} PFZ features`}</small>
+          {pfz && <small>Advisory: {pfz.metadata.advisory_date ?? 'Date unavailable'}{pfz.metadata.advisory_dates.length > 1 ? ' (latest; mixed dates)' : ''}</small>}
+          {pfz && <small title={pfz.metadata.fetched_at}>Fetched: {new Date(pfz.metadata.fetched_at).toLocaleString('en-IN')}</small>}
+          <button className="nearest-pfz-button" type="button" disabled={nearestLoading}
+            onClick={openLocationPicker}>
+            {nearestLoading ? 'Finding nearest PFZ…' : 'Find nearest PFZ'}
+          </button>
+          <small>Choose your starting location in the next step.</small>
+          {nearestError && <small role="status">{nearestError}</small>}
+        </section>
+      )}
+      {mapView === 'ocean' && layer && <Legend layer={layer} />}
 
-      <ChatPanel context={{ ...mapView, clicked_location: locationStep ? null : clickedLocation,
+      {mapView === 'ocean' && <ChatPanel context={{ ...mapContext, clicked_location: locationStep ? null : clickedLocation,
         active_layer: selectedLayer, selected_pfz: selectedPFZ ? String(selectedPFZ.properties.Sno ?? '') : nearest ? String(nearest.feature.properties.Sno ?? '') : null,
-        selected_time: selectedTime ?? null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }} onMapAction={applyChatAction} />
+        selected_time: selectedTime ?? null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }} onMapAction={applyChatAction} />}
 
-      {locationStep && <section className="location-picker glass" aria-labelledby="location-heading">
+      {mapView === 'ocean' && locationStep && <section className="location-picker glass" aria-labelledby="location-heading">
         <button className="location-close" type="button" onClick={cancelLocation} aria-label="Cancel location selection"><X size={17} /></button>
         <h2 id="location-heading" tabIndex={-1} ref={locationHeading}>Where are you starting from?</h2>
         <p>{locationPurpose === 'chat' ? 'SafeLink is asking for a starting point. Choose your device location or a map point, confirm it, then send your next chat message to share it with the assistant.' : 'Select your current or departure location—not a destination. We’ll find the nearest PFZ from there.'}</p>
@@ -565,7 +865,7 @@ export default function App() {
           <button className="nearest-pfz-button" type="button" onClick={cancelLocation}>Continue without location</button>
         </div>
         <p role="status">{locationStep === 'map' ? 'Click your starting position anywhere on the map. You can also enter coordinates in the search bar.'
-          : locationStep === 'locating' ? 'Allow the browser’s location request. You can select a map point instead at any time.'
+          : locationStep === 'locating' ? 'Allow the browser\'s location request. You can select a map point instead at any time.'
           : locationStep === 'confirm' ? 'Check the marked position, then confirm below. Click another map point to adjust it.'
           : 'Use device location, or click your starting point on the map.'}</p>
         {locationError && <p role="alert" className="location-error">{locationError}</p>}
@@ -583,7 +883,7 @@ export default function App() {
         <small>Location access is optional. If it is switched off or denied, SafeLink cannot determine your actual location. No continuous tracking.</small>
       </section>}
 
-      {nearest && pfzEnabled && (
+      {mapView === 'ocean' && nearest && pfzEnabled && (
         <section className="inspection-card glass nearest-pfz-card" aria-label="Nearest PFZ result">
           <button type="button" onClick={() => setNearestOrigin(null)} aria-label="Close nearest PFZ"><X size={16} /></button>
           <div className="inspection-time">Nearest PFZ · INCOIS {nearest.feature.properties.Sno ?? '—'}</div>
@@ -605,7 +905,7 @@ export default function App() {
         </section>
       )}
 
-      {selectedPFZ && pfzEnabled && !nearest && (
+      {mapView === 'ocean' && selectedPFZ && pfzEnabled && !nearest && (
         <section className="inspection-card glass pfz-inspection" aria-label="PFZ advisory information">
           <button type="button" onClick={() => setSelectedPFZ(null)} aria-label="Close PFZ information"><X size={16} /></button>
           <div className="inspection-time">Potential Fishing Zone</div>
@@ -617,7 +917,7 @@ export default function App() {
         </section>
       )}
 
-      {inspection && layer && !nearest && (
+      {mapView === 'ocean' && inspection && layer && !nearest && (
         <section className="inspection-card glass">
           <button type="button" onClick={() => setInspection(null)} aria-label="Close values"><X size={16} /></button>
           <div className="inspection-time"><Clock3 size={15} />{field ? formatTime(field.time) : ''}</div>
@@ -628,18 +928,83 @@ export default function App() {
         </section>
       )}
 
-      {hover && layer && (
+      {mapView === 'ocean' && hover && layer && (
         <div className="hover-value" style={{ left: hover.x + 16, top: hover.y + 82 }}>
           {hover.inspection.value.toFixed(2)} {layer.unit}
         </div>
       )}
 
-      {times.length > 0 && (
+      {mapView === 'ocean' && times.length > 0 && (
         <Timeline times={times} index={timeIndex} playing={playing} onIndex={setTimeIndex} onPlaying={setPlaying} />
       )}
 
-      {loading && <div className="loading-pill glass"><LoaderCircle className="spin" size={18} /> Loading ocean data</div>}
-      {error && <div className="error-banner">{error}. Make sure the SafeLink backend is running on port 8000.</div>}
+      {mapView === 'ocean' && loading && <div className="loading-pill glass"><LoaderCircle className="spin" size={18} /> Loading ocean data</div>}
+      {mapView === 'ocean' && error && <div className="error-banner">{error}. Make sure the SafeLink backend is running on port 8000.</div>}
+
+      {mapView === 'nautical' && (
+        <NavigationPanel
+          origin={navOrigin}
+          destination={navDestination}
+          originDetails={navOriginDetails}
+          destinationDetails={navDestinationDetails}
+          route={navRoute}
+          loading={navLoading}
+          pointLoading={navPointLoading}
+          picking={navPicking}
+          routeMode={navRouteMode}
+          savedRoutes={savedNavRoutes}
+          geocodeResults={navGeocodeTarget ? navGeocodeResults : []}
+          geocodeTarget={navGeocodeTarget}
+          geocodeLoading={navGeocodeLoading}
+          onUseCurrentLocation={handleNavCurrentLocation}
+          onPickOnMap={(type) => setNavPicking(type)}
+          onSearchPoint={handleNavSearchPoint}
+          onUseGeocode={handleUseGeocode}
+          onSetRouteMode={handleRouteMode}
+          onCalculate={handleCalculateRoute}
+          onSaveRoute={handleSaveRoute}
+          onLoadRoute={handleLoadSavedRoute}
+          onDeleteSavedRoute={(id) => setSavedNavRoutes((previous) => previous.filter((saved) => saved.id !== id))}
+          onClear={handleClearRoute}
+          onClose={() => { handleClearRoute(); setNavSpeed(10); setShowWeatherOverlay(false); setWeatherPoints([]) }}
+          waypoints={navWaypoints}
+          onAddWaypoint={() => setNavPicking('waypoint')}
+          onRemoveWaypoint={(idx) => { setNavWaypoints((prev) => prev.filter((_, i) => i !== idx)); setNavRoute(null) }}
+          speed={navSpeed}
+          onSpeedChange={setNavSpeed}
+          showWeather={showWeatherOverlay}
+          onWeatherToggle={() => setShowWeatherOverlay((v) => !v)}
+        />
+      )}
+
+      {mapView === 'nautical' && nauticalInfo && (
+        <section className="nautical-info-card glass" aria-label="Marine conditions at selected point">
+          <button type="button" onClick={() => setNauticalInfo(null)} aria-label="Close"><X size={16} /></button>
+          <div className="inspection-time">Marine Conditions</div>
+          <div className="inspection-location">{nauticalInfo.coordinates.lat.toFixed(3)}°N · {nauticalInfo.coordinates.lng.toFixed(3)}°E</div>
+          {Object.entries(nauticalInfo.conditions).map(([key, val]) => (
+            <div className="inspection-row" key={key}>
+              <span>{key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ')}</span>
+              <b>{val ? `${val.value.toFixed(2)} ${val.unit}` : 'Unavailable'}</b>
+            </div>
+          ))}
+          <small>Copernicus nearest-grid samples at this location. Not navigation advice.</small>
+        </section>
+      )}
+
+      {mapView === 'vessels' && selectedVessel && (
+        <VesselDetails vessel={selectedVessel} onClose={() => setSelectedVessel(null)} />
+      )}
+
+      {mapView === 'nautical' && navError && (
+        <div className="error-banner" onClick={() => setNavError(null)} style={{ cursor: 'pointer' }}>
+          {navError}
+        </div>
+      )}
+
+      <footer className="attribution-footer">
+        Data: Copernicus Marine + INCOIS. Route is advisory demo only — not certified for navigation. Always verify with official charts.
+      </footer>
     </main>
   )
 }
