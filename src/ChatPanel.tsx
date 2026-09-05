@@ -94,12 +94,12 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
         <button type="button" onClick={() => setOpen(false)} aria-label="Collapse SafeLink chat"><X size={19} /></button>
       </header>
       <div className="safelink-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
-      {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the OpenAI key in backend settings.</div>}
+      {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
       {notice && <div className="safelink-notice">{notice}</div>}
       <div className="safelink-messages" ref={scroll} onScroll={() => { const el = scroll.current; if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
         {!messages.length && <div className="safelink-welcome"><h2>Explore with evidence.</h2><p>Ask about a selected point, official PFZ advisories, or ocean conditions. I can update the map while explaining the data.</p>
           {['Find the nearest PFZ from the selected point.', 'What are the wave conditions here?', 'Check current official marine warnings for this area.'].map(q => <button type="button" key={q} onClick={() => setInput(q)}>{q}</button>)}
-          <small>Your message and compact map context are sent to OpenAI when you send. No continuous location tracking.</small>
+          <small>Your message and compact map context are sent to the configured AI provider when you send. No continuous location tracking.</small>
         </div>}
         {messages.map((message, index) => <article className={`safelink-message ${message.role}`} key={message.id}>
           <div className="safelink-message-role">{message.role === 'user' ? 'You' : 'SafeLink'}{message.state === 'streaming' && <span role="status">Working…</span>}</div>

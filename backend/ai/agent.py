@@ -66,6 +66,11 @@ class Agent:
         self.tools, self.client_factory = tools, client_factory
 
     async def stream(self, request, session, config: AIConfig):
+        if config.provider == 'groq':
+            from .groq_agent import stream_groq
+            async for item in stream_groq(self, request, session, config):
+                yield item
+            return
         yield event('status', label='Understanding your request')
         previous = session.previous_response_id
         inputs = [{'role': 'user', 'content': request.message},

@@ -203,6 +203,35 @@ On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` 
 
 ## SafeLink conversational assistant
 
+### Recommended free-tier setup: Groq
+
+In Railway service Variables (or your ignored local `.env`), set:
+
+```text
+AI_PROVIDER=groq
+GROQ_API_KEY=<your-groq-key>
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_MAX_OUTPUT_TOKENS=1500
+```
+
+Apply the variables and deploy the latest GitHub commit. `/api/chat/health`
+should show `provider: "groq"`, `configured: true`, and the model above.
+This checks configuration only; send a short message to verify access.
+Existing `OPENAI_*` variables are ignored when `AI_PROVIDER=groq`.
+Without `AI_PROVIDER`, a nonempty `GROQ_API_KEY` selects Groq automatically.
+No automatic paid-provider fallback is performed.
+
+Groq uses Chat Completions with streaming and the same validated marine/map
+tools. The last three completed user/assistant exchanges are retained in the
+server session; failed turns are not saved. Tool outputs are not retained across
+turns, so current data can be fetched again. This adapter does not provide live
+web search. Free-tier request/token limits still apply, and one reply may use
+several API calls. Do not commit keys or put them in browser/Vite variables.
+
+### Optional OpenAI provider
+
+The remaining OpenAI-specific details below apply with `AI_PROVIDER=openai`.
+
 The assistant uses the official OpenAI Python SDK and the Responses API with
 `gpt-5.5`. OpenAI's built-in web search is available to the model for fresh
 external notices and reports; SafeLink's own functions remain the source for PFZ and

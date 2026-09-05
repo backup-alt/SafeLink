@@ -13,6 +13,7 @@ class Conversation:
     touched: float = field(default_factory=monotonic)
     turns: int = 0
     busy: bool = False
+    history: list = field(default_factory=list)
 
 
 class SessionStore:
