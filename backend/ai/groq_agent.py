@@ -1,12 +1,21 @@
 """Groq Chat Completions adapter with bounded, server-owned tool history."""
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from .agent import LOG
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
 from .tools import TOOL_MODELS, definitions
+
+
+def unsupported_dates(answer, source_payloads):
+    # Catch invented ISO-style dates, including typographic hyphens.
+    normalized = answer.translate(str.maketrans({'‑': '-', '–': '-', '−': '-'}))
+    reported = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}\b', normalized))
+    supplied = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}(?!\d)', json.dumps(source_payloads)))
+    return reported - supplied
 
 
 async def stream_groq(agent, request, session, config):
@@ -19,6 +28,7 @@ async def stream_groq(agent, request, session, config):
     tools = [{'type': 'function', 'function': {k: v for k, v in tool.items() if k in {'name', 'description', 'parameters'}}}
              for tool in definitions()]
     count = 0
+    source_payloads = []
     try:
         async with asyncio.timeout(180), agent.client_factory() as client:
             for _ in range(config.rounds):
@@ -34,7 +44,6 @@ async def stream_groq(agent, request, session, config):
                         finish = choice.finish_reason or finish
                         if choice.delta.content:
                             answer += choice.delta.content
-                            yield event('text_delta', text=choice.delta.content)
                         # Reasoning fields are intentionally never forwarded.
                         for part in choice.delta.tool_calls or []:
                             call = calls.setdefault(part.index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
@@ -48,6 +57,10 @@ async def stream_groq(agent, request, session, config):
                 finally:
                     await upstream.close()
                 if finish == 'stop' and not calls:
+                    if source_payloads and unsupported_dates(answer, source_payloads):
+                        yield event('error', label='The assistant generated dates that could not be verified against its sources. This reply was withheld; please retry a more specific question.')
+                        return
+                    yield event('text_delta', text=answer)
                     # Keep only completed dialogue, not large tool outputs/context.
                     session.history = (session.history + [user, {'role': 'assistant', 'content': answer}])[-6:]
                     yield event('done')
@@ -64,6 +77,7 @@ async def stream_groq(agent, request, session, config):
                     label, source = (spec[1], spec[2]) if spec else ('Unsupported tool', None)
                     yield event('tool_start', id=call['id'], tool=name if spec else 'unsupported', label=label, source=source)
                     result = await asyncio.to_thread(agent.tools.run, name, arguments)
+                    source_payloads.append(result.data)
                     yield event('tool_result', id=call['id'], tool=name if spec else 'unsupported', label=label,
                                 success=result.success, source=source)
                     receipts = []
