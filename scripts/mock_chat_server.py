@@ -4,10 +4,13 @@ Never creates an OpenAI client. Not imported by production startup.
 """
 import asyncio
 import os
+import copy
 from types import SimpleNamespace as NS
 
 os.environ['OPENAI_API_KEY'] = 'offline-fixture-not-a-real-key'
 os.environ['SAFELINK_AUTO_REFRESH'] = 'false'
+os.environ['HF_CHAT_DATASET_REPO'] = ''
+os.environ['HF_CHAT_TOKEN'] = ''
 
 from backend.app import app, chat_router, pfz_service
 from backend.tests.test_ai import FakeClient, FakeStream, complete, e, text
@@ -44,6 +47,21 @@ class DemoClient(FakeClient):
 
 
 chat_router.agent.client_factory = lambda: DemoClient([])
+
+# Optional in-memory archive fixture: never calls Hugging Face.
+if os.getenv('SAFELINK_TEST_ARCHIVE') == 'true':
+    records = {}
+    chat_router.archive.repo = 'fixture/private'
+    chat_router.archive.token = 'offline-fixture'
+    chat_router.archive.client = lambda: None
+    chat_router.archive.read = lambda owner: copy.deepcopy(records.get(owner, {}))
+    def archive_update(owner, key, session=None):
+        entries = records.setdefault(owner, {})
+        if session is None:
+            entries.pop(key, None)
+        else:
+            entries[key] = {'messages': copy.deepcopy(session.messages), 'turns': session.turns}
+    chat_router.archive.update = archive_update
 
 if __name__ == '__main__':
     import uvicorn

@@ -18,6 +18,11 @@ async function main() {
     assert.equal(await page.locator('.safelink-answer strong').innerText(), 'Fixture summary')
     await page.getByRole('button', { name: 'New conversation', exact: true }).click()
     await page.getByRole('button', { name: 'View history', exact: true }).click()
+    if (process.env.SAFELINK_TEST_ARCHIVE === 'true') {
+      await page.getByRole('checkbox', { name: 'Save my chats in the private Hugging Face archive' }).click()
+      await page.getByText('Private archive enabled for this browser.', { exact: false }).waitFor()
+      assert.equal(await page.getByRole('checkbox', { name: 'Save my chats in the private Hugging Face archive' }).isChecked(), true)
+    }
     await page.getByRole('button', { name: /Offline history check.*turns/ }).click()
     await page.getByText('Offline test answer:', { exact: false }).waitFor()
     await page.locator('.safelink-answer table').waitFor()

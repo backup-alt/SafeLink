@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, History, LoaderCircle, MessageCircle, Plus, Send, Square, Trash2, X } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { acknowledgeMapAction, clearConversation, createConversation, getHistory, listConversations, streamChat } from './chatApi'
-import type { SavedConversation } from './chatApi'
+import { acknowledgeMapAction, clearConversation, createConversation, getHistory, historyStorage, listConversations, streamChat } from './chatApi'
+import type { SavedConversation, HistoryStorage } from './chatApi'
 import type { ChatMessage, ChatStreamEvent, MapAction, MapContext, ToolActivity } from './chatTypes'
 import { safeWebURL } from './chatTypes'
 import './chat.css'
@@ -22,6 +22,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   const [historyOpen, setHistoryOpen] = useState(false)
   const [saved, setSaved] = useState<SavedConversation[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [storage, setStorage] = useState<HistoryStorage>({ configured: false, enabled: false })
   const conversation = useRef<string | null>(null), abort = useRef<AbortController | null>(null)
   const scroll = useRef<HTMLDivElement>(null), atBottom = useRef(true)
   const actions = useRef<Promise<unknown>>(Promise.resolve())
@@ -31,6 +32,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   useEffect(() => () => abort.current?.abort(), [])
   useEffect(() => {
     if (!open) return
+    historyStorage().then(setStorage).catch(() => undefined)
     const controller = new AbortController()
     fetch('/api/chat/health', { signal: controller.signal }).then(r => r.json()).then((data: { configured: boolean }) => setConfigured(data.configured)).catch(() => setConfigured(false))
     return () => controller.abort()
@@ -81,6 +83,12 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
       if (!conversation.current) conversation.current = (await createConversation(controller.signal)).conversation_id
       await streamChat({ conversation_id: conversation.current, message: text, map_context: requestContext }, controller.signal, handle)
       await actions.current
+      if (storage.enabled) {
+        try {
+          const snapshot = await getHistory(conversation.current)
+          if (snapshot.archive_error || !snapshot.archived) setNotice('Reply is available, but cloud history was not saved. Keep this page open and retry later.')
+        } catch { setNotice('Reply is available, but cloud history could not be verified. Keep this page open.') }
+      }
     } catch (error) {
       patch(id, m => ({ ...m, state: controller.signal.aborted ? 'stopped' : 'error',
         error: controller.signal.aborted ? 'Stopped. Partial answer may be incomplete.' : error instanceof Error ? error.message : 'Reply unavailable.',
@@ -123,6 +131,15 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
     } catch { setNotice('Could not delete this conversation. Please retry.') }
     finally { setHistoryLoading(false) }
   }
+  const toggleStorage = async (enabled: boolean) => {
+    if (busy || historyLoading) return
+    setHistoryLoading(true)
+    try {
+      setStorage(await historyStorage(enabled))
+      setNotice(enabled ? 'Private archive enabled for this browser. Keep its cookies to retain access.' : 'Future cloud saves disabled. Existing cloud versions are retained; use Delete to remove a chat from the current archive.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not update storage preference.') }
+    finally { setHistoryLoading(false) }
+  }
 
   return <>
     {!open && <button className="safelink-launch glass" onClick={() => setOpen(true)} type="button"><MessageCircle size={18} /> Ask SafeLink {busy && <LoaderCircle className="spin" size={14} />}</button>}
@@ -142,7 +159,8 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
             <button type="button" onClick={() => setHistoryOpen(false)} aria-label="Close history"><X size={16} /></button>
           </div>
           <div className="safelink-history-info">
-            <p>Recent chats in this browser. Stored on this server for up to 2 hours of inactivity; cleared on server restart. The assistant retains only limited recent context.</p>
+            {storage.configured && <label><input type="checkbox" checked={storage.enabled} disabled={busy || historyLoading} onChange={e => void toggleStorage(e.target.checked)} /> Save my chats in the private Hugging Face archive</label>}
+            <p>{storage.enabled ? 'Saved chats survive server restarts. Access uses this browser cookie (up to one year); clearing cookies loses access. Messages may contain locations. The dataset owner can read them. Delete removes a chat from the current archive, not older repository versions.' : 'Temporary chats expire after 2 hours of inactivity or server restart. Opt-in cloud storage, when configured, sends chat content to a private dataset.'} The assistant retains limited recent context.</p>
             {historyLoading && <p role="status">Loading…</p>}
             {!historyLoading && !saved.length && <p>No saved conversations.</p>}
             {saved.map(item => <div className="safelink-history-row" key={item.conversation_id}>

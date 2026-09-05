@@ -8,6 +8,7 @@ async function checked(response: Response) {
       404: 'Conversation expired. Start a new conversation.', 409: 'The previous reply is still stopping. Try again shortly.',
       422: 'Please check your message or map selection.', 429: 'SafeLink usage limit reached or service busy. Try later, or start a new conversation if this one is long.',
       503: 'SafeLink AI is not configured. Check the server AI provider and its API key. The map remains available.',
+      502: 'Private chat storage is unavailable. Check that the separate dataset is private and its token has access. Your local conversation has not been cleared.',
     }
     throw new Error(labels[response.status] ?? 'SafeLink is temporarily unavailable. Please retry.')
   }
@@ -24,11 +25,18 @@ export async function clearConversation(id: string) {
   if (response.status !== 404) await checked(response)
 }
 export type SavedConversation = { conversation_id: string; title: string; turns: number; busy: boolean }
+export type HistoryStorage = { configured: boolean; enabled: boolean }
+export async function historyStorage(enabled?: boolean): Promise<HistoryStorage> {
+  const response = await checked(await fetch('/api/chat/history-storage', enabled === undefined ? { cache: 'no-store' } : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+  }))
+  return response.json()
+}
 export async function listConversations(): Promise<SavedConversation[]> {
   const response = await checked(await fetch('/api/chat/sessions', { cache: 'no-store' }))
   return (await response.json()).conversations
 }
-export async function getHistory(id: string): Promise<{ messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number; complete?: boolean; error?: string; activities?: import('./chatTypes').ToolActivity[]; sources?: import('./chatTypes').WebSource[] }>; turns: number }> {
+export async function getHistory(id: string): Promise<{ messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number; complete?: boolean; error?: string; activities?: import('./chatTypes').ToolActivity[]; sources?: import('./chatTypes').WebSource[] }>; turns: number; archived?: boolean; archive_error?: boolean }> {
   const response = await checked(await fetch(`/api/chat/session/${encodeURIComponent(id)}/history`))
   return await response.json()
 }

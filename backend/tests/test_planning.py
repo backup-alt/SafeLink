@@ -1,16 +1,59 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
-from threading import Barrier
+from threading import Barrier, Event
 from unittest import TestCase
 from unittest.mock import Mock, patch
 from backend.ai.schemas import PlanArgs, WeatherArgs
 from backend.ai.planning import execute_plan
-from backend.ai.tools import MarineTools, ToolResult
+from backend.ai.tools import MarineTools, ToolResult, execution_cost
 from backend.ai.weather import forecast, VARIABLES
 
 
 class PlanningTests(TestCase):
+    def test_children_count_against_tool_budget(self):
+        arguments = json.dumps({'tasks': [{'id': 'one', 'tool': 'get_data_availability', 'arguments_json': '{}'}]})
+        self.assertEqual(2, execution_cost('execute_plan', arguments))
+        self.assertEqual(1, execution_cost('get_data_availability', '{}'))
+
+    def test_dependency_cycle_and_missing_id_rejected(self):
+        for dependencies in [('second', 'first'), ('missing', 'first')]:
+            with self.assertRaises(ValueError):
+                PlanArgs.model_validate({'tasks': [
+                    {'id': 'first', 'tool': 'get_data_availability', 'arguments_json': '{}', 'depends_on': [dependencies[0]]},
+                    {'id': 'second', 'tool': 'get_data_availability', 'arguments_json': '{}', 'depends_on': [dependencies[1]]}]})
+
+    def test_dependency_order_and_skipped_failure(self):
+        for success in (True, False):
+            calls = []
+            def run(name, arguments):
+                calls.append(name)
+                return ToolResult({}, success=success)
+            plan = PlanArgs.model_validate({'tasks': [
+                {'id': 'second', 'tool': 'resolve_location', 'arguments_json': '{"name":"Chennai"}', 'depends_on': ['first']},
+                {'id': 'first', 'tool': 'get_data_availability', 'arguments_json': '{}'}]})
+            result = execute_plan(Mock(run=run), plan)
+            self.assertEqual('get_data_availability', calls[0])
+            self.assertEqual(2 if success else 1, len(calls))
+            self.assertEqual('ok' if success else 'skipped', result.data['tasks'][0]['status'])
+
+    def test_timeout_returns_without_waiting_for_blocked_tool(self):
+        release, finished = Event(), Event()
+        def run(*args):
+            release.wait(2)
+            finished.set()
+            return ToolResult({'value': 1})
+        plan = PlanArgs.model_validate({'tasks': [{'id': 'slow', 'tool': 'get_data_availability', 'arguments_json': '{}'}]})
+        try:
+            with patch('backend.ai.planning.PLAN_TIMEOUT', .05):
+                result = execute_plan(Mock(run=run), plan)
+            self.assertFalse(finished.is_set())
+            self.assertEqual('timeout', result.data['tasks'][0]['status'])
+            self.assertFalse(result.success)
+        finally:
+            release.set()
+            finished.wait(2)
+
     def test_parallel_results_and_partial_safety(self):
         barrier = Barrier(2, timeout=2)
         def run(name, args):

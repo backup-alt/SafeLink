@@ -8,7 +8,7 @@ from .openai_client import AIConfig, create_client
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
 from .sources import tool_sources
-from .tools import TOOL_MODELS, definitions
+from .tools import TOOL_MODELS, definitions, execution_cost
 
 LOG = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ class Agent:
                     inputs = []
                     previous = completed.id
                     for call in calls:
-                        tool_count += 1
+                        tool_count += execution_cost(call.name, call.arguments)
                         if tool_count > 12:
                             raise RuntimeError('Tool limit reached')
                         spec = TOOL_MODELS.get(call.name)

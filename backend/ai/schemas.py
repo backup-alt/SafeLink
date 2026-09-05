@@ -82,6 +82,7 @@ class PlannedTask(StrictModel):
     id: str = Field(pattern=r'^[a-z][a-z0-9_]{0,31}$')
     tool: Literal['get_marine_conditions', 'get_nearest_pfz', 'get_pfz_details', 'get_data_availability', 'resolve_location', 'get_weather_forecast']
     arguments_json: str = Field(min_length=2, max_length=4000)
+    depends_on: list[str] = Field(default_factory=list, max_length=3)
 
 
 class PlanArgs(StrictModel):
@@ -92,6 +93,16 @@ class PlanArgs(StrictModel):
     def unique_ids(cls, tasks):
         if len({task.id for task in tasks}) != len(tasks):
             raise ValueError('Duplicate task ID')
+        known = {task.id for task in tasks}
+        resolved = set()
+        for task in tasks:
+            if len(set(task.depends_on)) != len(task.depends_on) or any(dep not in known or dep == task.id for dep in task.depends_on):
+                raise ValueError('Invalid dependency')
+        while len(resolved) < len(tasks):
+            ready = {task.id for task in tasks if set(task.depends_on) <= resolved}
+            if ready <= resolved:
+                raise ValueError('Dependency cycle')
+            resolved |= ready
         return tasks
 
 
