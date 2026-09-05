@@ -217,6 +217,7 @@ export default function App() {
   const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>(null)
   const [originLocation, setOriginLocation] = useState<OriginLocation | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('pfz')
   const locationRequest = useRef(0)
   const locationHeading = useRef<HTMLHeadingElement>(null)
 
@@ -237,6 +238,7 @@ export default function App() {
   useEffect(() => () => { locationRequest.current += 1 }, [])
 
   const openLocationPicker = () => {
+    setLocationPurpose('pfz')
     locationRequest.current += 1
     setLocationStep('choose')
     setLocationError(null)
@@ -292,7 +294,6 @@ export default function App() {
   }, [nearestOrigin, pfz?.data])
 
   const selectMapPoint = useCallback((point: [number, number]) => {
-    setClickedLocation({ longitude: point[0], latitude: point[1] })
     setNearestOrigin(null)
     if (locationStep) {
       locationRequest.current += 1
@@ -303,6 +304,7 @@ export default function App() {
       setSelectedPFZ(null)
       return true
     }
+    setClickedLocation({ longitude: point[0], latitude: point[1] })
     setOriginLocation(null)
     return false
   }, [locationStep])
@@ -458,6 +460,15 @@ export default function App() {
         setSelectedPFZ(null); setNearestOrigin(null); setInspection(null)
         setMapCommand({ id: Date.now(), action })
         return 'Cleared assistant map highlights'
+      case 'request_location':
+        openLocationPicker()
+        setLocationPurpose('chat')
+        return 'Location chooser opened. Choose and confirm a position, then send your next message.'
+      case 'zoom_in': case 'zoom_out':
+        if (!mapView.center) return 'Map view is not ready yet'
+        setMapCommand({ id: Date.now(), action: { type: 'fly_to', ...mapView.center,
+          zoom: Math.max(2, Math.min(14, mapView.zoom + (action.type === 'zoom_in' ? 1 : -1))) } })
+        return action.type === 'zoom_in' ? 'Zoomed in one level' : 'Zoomed out one level'
       case 'fly_to': case 'place_marker':
         setMapCommand({ id: Date.now(), action })
         return action.type === 'fly_to' ? 'Moved map to the requested point' : 'Placed a map marker'
@@ -536,14 +547,14 @@ export default function App() {
       </section>
       {layer && <Legend layer={layer} />}
 
-      <ChatPanel context={{ ...mapView, clicked_location: clickedLocation ?? (originLocation ? { latitude: originLocation.point[1], longitude: originLocation.point[0] } : null),
+      <ChatPanel context={{ ...mapView, clicked_location: locationStep ? null : clickedLocation,
         active_layer: selectedLayer, selected_pfz: selectedPFZ ? String(selectedPFZ.properties.Sno ?? '') : nearest ? String(nearest.feature.properties.Sno ?? '') : null,
         selected_time: selectedTime ?? null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }} onMapAction={applyChatAction} />
 
       {locationStep && <section className="location-picker glass" aria-labelledby="location-heading">
         <button className="location-close" type="button" onClick={cancelLocation} aria-label="Cancel location selection"><X size={17} /></button>
         <h2 id="location-heading" tabIndex={-1} ref={locationHeading}>Where are you starting from?</h2>
-        <p>Select your current or departure location—not a destination. We’ll find the nearest PFZ from there.</p>
+        <p>{locationPurpose === 'chat' ? 'SafeLink is asking for a starting point. Choose your device location or a map point, confirm it, then send your next chat message to share it with the assistant.' : 'Select your current or departure location—not a destination. We’ll find the nearest PFZ from there.'}</p>
         <div className="location-actions">
           <button className="nearest-pfz-button" type="button" disabled={locationStep === 'locating'} onClick={locateDevice}>
             {locationStep === 'locating' ? 'Finding your location…' : 'Use my current location'}
@@ -563,8 +574,10 @@ export default function App() {
           {originLocation.accuracy !== undefined && <p>Reported accuracy: approximately {Math.round(originLocation.accuracy).toLocaleString()} m.
             {originLocation.accuracy > 1000 ? ' This is a coarse location—check the marker carefully or select your position manually.' : ' Check the marker before continuing.'}</p>}
           <button className="nearest-pfz-button" type="button" onClick={() => {
-            setLocationStep(null); setNearestOrigin([...originLocation.point]); setPlaying(false)
-          }}>Find PFZ from this location</button>
+            setLocationStep(null); setPlaying(false)
+            setClickedLocation({ latitude: originLocation.point[1], longitude: originLocation.point[0] })
+            if (locationPurpose === 'pfz') setNearestOrigin([...originLocation.point])
+          }}>{locationPurpose === 'chat' ? 'Use this point for my next message' : 'Find PFZ from this location'}</button>
         </div>}
         <small>Location access is optional. If it is switched off or denied, SafeLink cannot determine your actual location. No continuous tracking.</small>
       </section>}

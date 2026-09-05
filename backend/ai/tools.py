@@ -23,7 +23,7 @@ DESCRIPTIONS = {
     'get_pfz_details': 'Get one verified INCOIS advisory by its PFZ Sno. No guessed coordinates.',
     'resolve_location': 'Find named places in the existing map label gazetteer; may return several candidates or none. Ask user to choose if ambiguous. Coordinates are label positions, not vessel locations.',
     'get_data_availability': 'Get coverage and available time ranges for the five Copernicus layers.',
-    'update_map': 'Apply a safe map command. Set unused fields to null. Requires verified PFZ ID to highlight; coordinates for fly_to/place_marker and zoom 2–14; ISO time for set_time.',
+    'update_map': 'Control the visible map: zoom_in/zoom_out, fly_to/place_marker (coordinates and zoom 2–14), highlight_pfz (verified PFZ ID), select_layer, set_time (ISO), clear_map_highlights. request_location opens an optional location chooser; it does NOT return coordinates or grant permission. Set unused fields to null.',
 }
 
 
@@ -126,7 +126,8 @@ class MarineTools:
                 action = args.action().model_dump()
                 if action['type'] == 'highlight_pfz':
                     self.feature(action['pfz_id'])  # Reject nonexistent/ambiguous advisory IDs.
-                return ToolResult({'accepted': True, 'action': action}, actions=[action])
+                return ToolResult({'accepted': True, 'action': action,
+                                   'note': 'Browser action requested; execution is not confirmed. For request_location, wait for the user to confirm and send another message.'}, actions=[action])
         except Exception as error:
             # No argument dump, exception body or upstream response in logs/UI.
             LOG.warning('SafeLink tool failed (%s, %s)', name, type(error).__name__)

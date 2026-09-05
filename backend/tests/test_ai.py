@@ -161,6 +161,15 @@ class AgentTests(IsolatedAsyncioTestCase):
 
 
 class ToolTests(TestCase):
+    def test_location_request_and_zoom_actions(self):
+        tools = MarineTools(Mock(), Mock())
+        for command in ['request_location', 'zoom_in', 'zoom_out']:
+            result = tools.run('update_map', json.dumps(dict(command=command, latitude=None,
+                longitude=None, zoom=None, pfz_id=None, layer=None, time=None)))
+            self.assertTrue(result.success)
+            self.assertEqual([{'type': command}], result.actions)
+            self.assertNotIn('latitude', result.data)
+
     def setUp(self):
         self.repo, self.pfz = Mock(), Mock()
         self.tools = MarineTools(self.repo, self.pfz)

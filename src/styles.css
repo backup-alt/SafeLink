@@ -137,7 +137,7 @@ button { color: inherit; }
 .inspection-card > .nearest-show-point { position: static; display: block; margin-top: 8px; padding: 7px; border: 1px solid #53d9d6; }
 .nearest-pfz-card > small, .nearest-condition small { display: block; margin-top: 5px; color: #b8cbd0; font-size: 11px; }
 .nearest-condition { margin-top: 10px; }
-.location-picker { position: absolute; z-index: 9; top: 80px; left: 20px; width: min(370px, calc(100vw - 40px)); padding: 18px; border-radius: 10px; max-height: calc(100vh - 200px); overflow-y: auto; }
+.location-picker { position: absolute; z-index: 12; top: 80px; left: 20px; width: min(370px, calc(100vw - 40px)); padding: 18px; border-radius: 10px; max-height: calc(100vh - 200px); overflow-y: auto; }
 .location-picker h2 { font-size: 16px; padding-right: 20px; margin: 0 0 10px; color: #64e1dc; }
 .location-picker p { font-size: 12px; line-height: 1.6; margin: 10px 0; }
 .location-picker small { color: #b8cbd0; font-size: 11px; line-height: 1.5; }

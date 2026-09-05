@@ -88,7 +88,7 @@ class SetTime(StrictModel):
 
 
 class ClearMap(StrictModel):
-    type: Literal['clear_map_highlights']
+    type: Literal['clear_map_highlights', 'zoom_in', 'zoom_out', 'request_location']
 
 
 MapAction = Annotated[FlyTo | Highlight | SelectLayer | SetTime | ClearMap, Field(discriminator='type')]
@@ -96,7 +96,7 @@ MAP_ACTION = TypeAdapter(MapAction)
 
 
 class MapArgs(StrictModel):
-    command: Literal['fly_to', 'place_marker', 'highlight_pfz', 'select_layer', 'set_time', 'clear_map_highlights']
+    command: Literal['fly_to', 'place_marker', 'highlight_pfz', 'select_layer', 'set_time', 'clear_map_highlights', 'zoom_in', 'zoom_out', 'request_location']
     latitude: Latitude | None
     longitude: Longitude | None
     zoom: float | None = Field(ge=2, le=14, allow_inf_nan=False)
@@ -107,7 +107,8 @@ class MapArgs(StrictModel):
 
     def action(self):
         fields = {'fly_to': ['latitude', 'longitude', 'zoom'], 'place_marker': ['latitude', 'longitude', 'zoom'],
-                  'highlight_pfz': ['pfz_id'], 'select_layer': ['layer'], 'set_time': ['time'], 'clear_map_highlights': []}
+                  'highlight_pfz': ['pfz_id'], 'select_layer': ['layer'], 'set_time': ['time'], 'clear_map_highlights': [],
+                  'zoom_in': [], 'zoom_out': [], 'request_location': []}
         return MAP_ACTION.validate_python({'type': self.command, **{key: getattr(self, key) for key in fields[self.command]}})
 
 

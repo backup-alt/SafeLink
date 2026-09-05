@@ -14,7 +14,7 @@ export type MapAction =
   | { type: 'highlight_pfz'; pfz_id: string }
   | { type: 'select_layer'; layer: LayerId }
   | { type: 'set_time'; time: string }
-  | { type: 'clear_map_highlights' }
+  | { type: 'clear_map_highlights' | 'zoom_in' | 'zoom_out' | 'request_location' }
 export interface WebSource { url: string; title: string }
 export interface Citation extends WebSource { start: number; end: number }
 export interface AgentActivity { id: string; label: string; state: 'running' | 'done' | 'failed'; source?: string }
@@ -46,14 +46,15 @@ export function safeWebURL(value: unknown): value is string {
 export function isMapAction(value: unknown): value is MapAction {
   if (!record(value)) return false
   const keys: Record<string, string[]> = { fly_to: ['type', 'latitude', 'longitude', 'zoom'], place_marker: ['type', 'latitude', 'longitude', 'zoom'],
-    highlight_pfz: ['type', 'pfz_id'], select_layer: ['type', 'layer'], set_time: ['type', 'time'], clear_map_highlights: ['type'] }
+    highlight_pfz: ['type', 'pfz_id'], select_layer: ['type', 'layer'], set_time: ['type', 'time'], clear_map_highlights: ['type'],
+    zoom_in: ['type'], zoom_out: ['type'], request_location: ['type'] }
   if (!text(value.type) || !Object.hasOwn(keys, value.type) || Object.keys(value).some(k => !keys[value.type as string].includes(k))) return false
   switch (value.type) {
     case 'fly_to': case 'place_marker': return numeric(value.latitude, -90, 90) && numeric(value.longitude, -180, 180) && numeric(value.zoom, 2, 14)
     case 'highlight_pfz': return text(value.pfz_id, 80) && value.pfz_id.length > 0
     case 'select_layer': return typeof value.layer === 'string' && layers.includes(value.layer)
     case 'set_time': return text(value.time, 40) && /(?:Z|[+-]\d{2}:\d{2})$/.test(value.time) && Number.isFinite(Date.parse(value.time))
-    case 'clear_map_highlights': return true
+    case 'clear_map_highlights': case 'zoom_in': case 'zoom_out': case 'request_location': return true
     default: return false
   }
 }
