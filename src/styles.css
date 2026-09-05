@@ -147,3 +147,119 @@ button { color: inherit; }
 .location-confirm { border-top: 1px solid #577078; padding: 12px 0; font-size: 13px; }
 .origin-location-marker { width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; background: #15aaa9; box-shadow: 0 0 0 7px #3adbd342, 0 2px 8px #0008; }
 .origin-location-marker span { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #13262f; color: #edffff; padding: 5px 8px; border-radius: 5px; font: 11px Manrope, sans-serif; }
+
+/* Map View Switcher */
+.map-view-switcher { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: rgba(20, 29, 33, .92); border: 1px solid rgba(80, 97, 105, .44); backdrop-filter: blur(14px); }
+.map-view-button { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #81969c; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.map-view-button:hover { color: #c8dcdf; background: rgba(255, 255, 255, .04); }
+.map-view-button.active { border-color: #53e6e2; background: rgba(76, 231, 226, .05); color: #edf6f7; box-shadow: inset 0 0 8px rgba(92, 242, 237, .1); }
+
+/* Navigation Planner */
+.nav-planner { position: absolute; z-index: 8; top: 78px; left: 18px; width: min(430px, calc(100vw - 470px)); min-width: 360px; max-height: calc(100vh - 118px); display: flex; flex-direction: column; overflow: hidden; border-radius: 8px; }
+.nav-planner-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 12px; border-bottom: 1px solid rgba(155, 199, 206, .14); }
+.nav-planner-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: #e9fbfb; font-size: 16px; line-height: 1.2; }
+.nav-planner-header p { margin: 4px 0 0; color: #8ca1a6; font-size: 11px; }
+.nav-planner-header button, .nav-icon-button, .nav-history-delete { display: grid; place-items: center; border: 1px solid rgba(120, 148, 155, .32); border-radius: 6px; background: rgba(15, 23, 27, .68); color: #c6d5d8; cursor: pointer; }
+.nav-planner-header button { width: 30px; height: 30px; flex: 0 0 30px; }
+.nav-planner-scroll { min-height: 0; overflow-y: auto; padding: 12px; }
+.nav-workflow-section { padding: 12px; border-top: 1px solid rgba(155, 199, 206, .14); }
+.nav-workflow-section:first-child { border-top: 0; }
+.nav-section-title, .nav-history-title { display: flex; align-items: center; gap: 8px; color: #70e7e4; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.nav-point-summary { margin-top: 10px; padding: 10px; border: 1px solid rgba(80, 97, 105, .5); border-radius: 7px; background: rgba(12, 20, 24, .62); }
+.nav-point-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.nav-point-summary-head span { color: #c8d6d9; font-size: 12px; font-weight: 700; }
+.nav-point-summary-head b { color: #8ff4ec; font-size: 10px; text-transform: uppercase; }
+.nav-point-coord { margin-top: 6px; color: #eefafa; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.nav-metrics-grid, .nav-route-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.nav-metrics-grid div, .nav-route-metrics div { min-width: 0; padding: 8px; border: 1px solid rgba(87, 112, 120, .38); border-radius: 6px; background: rgba(20, 33, 38, .62); }
+.nav-metrics-grid span, .nav-route-metrics span, .nav-leg-list span { display: block; color: #8ca1a6; font-size: 10px; }
+.nav-metrics-grid b, .nav-route-metrics b, .nav-leg-list b { display: block; margin-top: 3px; overflow-wrap: anywhere; color: #edfafa; font-size: 12px; }
+.nav-point-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.nav-action-button, .nav-primary-button, .nav-secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; cursor: pointer; }
+.nav-action-button { min-height: 36px; border: 1px solid rgba(92, 242, 237, .38); background: rgba(25, 52, 60, .78); color: #d8ffff; font-size: 12px; }
+.nav-action-button.active, .nav-icon-button.active, .nav-mode-grid button.active { border-color: #5cf2ed; background: rgba(92, 242, 237, .14); color: #ffffff; box-shadow: inset 0 0 0 1px rgba(92, 242, 237, .22); }
+.nav-search-row { display: flex; align-items: center; height: 38px; margin-top: 9px; border: 1px solid rgba(86, 104, 111, .8); border-radius: 7px; background: rgba(40, 51, 56, .72); }
+.nav-search-row input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #f4fbfb; padding: 0 10px; font-size: 12px; }
+.nav-search-row button { width: 38px; height: 100%; display: grid; place-items: center; border: 0; border-left: 1px solid rgba(86, 104, 111, .6); background: transparent; color: #dcffff; cursor: pointer; }
+.nav-geocode-results { display: grid; gap: 6px; margin-top: 8px; }
+.nav-geocode-results button { padding: 8px; border: 1px solid rgba(80, 97, 105, .42); border-radius: 6px; background: rgba(15, 23, 27, .76); color: inherit; text-align: left; cursor: pointer; }
+.nav-geocode-results span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #dce9eb; font-size: 11px; line-height: 1.35; }
+.nav-geocode-results small, .nav-muted { display: block; color: #8ca1a6; font-size: 10px; line-height: 1.45; }
+.nav-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.nav-mode-grid button { min-height: 94px; padding: 10px; border: 1px solid rgba(80, 97, 105, .44); border-radius: 7px; background: rgba(15, 23, 27, .64); color: #dce9eb; cursor: pointer; text-align: left; }
+.nav-mode-grid button > span { display: block; margin-top: 6px; color: #f0ffff; font-size: 12px; font-weight: 800; }
+.nav-mode-grid button small { display: block; margin-top: 4px; color: #9db0b4; font-size: 10px; line-height: 1.35; }
+.nav-check-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(80,97,105,.44); border-radius: 7px; background: rgba(15,23,27,.6); color: #aebfc3; cursor: pointer; font-size: 11px; }
+.nav-check-row input { accent-color: #5cf2ed; }
+.nav-primary-button { width: 100%; min-height: 38px; margin-top: 10px; padding: 8px 11px; border: 1px solid #53d9d6; background: #19343c; color: #d8ffff; font-size: 12px; font-weight: 800; }
+.nav-primary-button:disabled { opacity: .55; cursor: default; }
+.nav-secondary-button { min-height: 38px; padding: 8px 11px; border: 1px solid rgba(120, 148, 155, .4); background: rgba(15, 23, 27, .64); color: #cfdee1; font-size: 12px; }
+.nav-leg-list { display: grid; gap: 6px; margin-top: 10px; }
+.nav-leg-list div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 8px; border-radius: 6px; background: rgba(12, 20, 24, .58); }
+.nav-save-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.nav-warnings { margin-top: 10px; }
+.nav-warning { display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px; margin-top: 6px; border-radius: 5px; font-size: 11px; line-height: 1.4; }
+.nav-warning-info { background: rgba(92, 242, 237, .1); color: #a8e8e6; border: 1px solid rgba(92, 242, 237, .2); }
+.nav-warning-warning { background: rgba(255, 209, 102, .1); color: #ffd166; border: 1px solid rgba(255, 209, 102, .2); }
+.nav-warning-danger { background: rgba(255, 117, 111, .1); color: #ff756f; border: 1px solid rgba(255, 117, 111, .2); }
+.nav-history { position: absolute; z-index: 8; top: 78px; right: 18px; width: 300px; max-height: calc(100vh - 118px); overflow-y: auto; padding: 13px; border-radius: 8px; }
+.nav-history p { margin: 12px 0 0; color: #8ca1a6; font-size: 11px; line-height: 1.5; }
+.nav-history-item { position: relative; margin-top: 9px; border: 1px solid rgba(80, 97, 105, .42); border-radius: 7px; background: rgba(12, 20, 24, .62); }
+.nav-history-item > button:first-child { width: 100%; display: block; padding: 10px 38px 10px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.nav-history-item strong, .nav-history-item span, .nav-history-item small { display: block; }
+.nav-history-item strong { color: #eafafa; font-size: 12px; line-height: 1.35; }
+.nav-history-item span { margin-top: 4px; color: #80e2df; font-size: 11px; }
+.nav-history-item small { margin-top: 4px; color: #8ca1a6; font-size: 10px; }
+.nav-history-delete { position: absolute; top: 9px; right: 8px; width: 24px; height: 24px; }
+
+/* Nautical Info Card */
+.nautical-info-card { position: absolute; z-index: 8; left: 466px; bottom: 42px; width: min(300px, calc(100vw - 32px)); padding: 14px; border-radius: 8px; }
+.nautical-info-card small { display: block; margin-top: 8px; color: #81969c; font-size: 10px; }
+
+/* Vessel Details */
+.vessel-details { width: min(300px, calc(100vw - 32px)); }
+.vessel-details small { display: block; margin-top: 10px; color: #81969c; font-size: 10px; }
+
+/* AIS Unavailable */
+.ais-unavailable { position: absolute; z-index: 8; top: 80px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 20px; background: rgba(255, 209, 102, .15); border: 1px solid rgba(255, 209, 102, .3); color: #ffd166; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+/* Map attribution labels */
+.nautical-attribution, .vessel-attribution { position: absolute; z-index: 2; bottom: 4px; left: 8px; color: rgba(160, 180, 185, .6); font-size: 9px; pointer-events: none; }
+
+/* Navigation markers */
+.nav-origin-marker { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #5cf2ed; background: #0e171b; box-shadow: 0 0 0 5px rgba(92, 242, 237, .3), 0 2px 8px rgba(0,0,0,.5); }
+.nav-dest-marker { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #ffd166; background: #0e171b; box-shadow: 0 0 0 5px rgba(255, 209, 102, .3), 0 2px 8px rgba(0,0,0,.5); }
+.nav-waypoint-marker { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #a78bfa; background: #0e171b; box-shadow: 0 0 0 4px rgba(167, 139, 250, .3), 0 2px 6px rgba(0,0,0,.5); }
+.nav-distance-label { background: rgba(15, 23, 27, .85); color: #81969c; font: 9px Manrope, sans-serif; padding: 2px 5px; border-radius: 3px; border: 1px solid rgba(80, 97, 105, .3); white-space: nowrap; pointer-events: none; }
+.nav-weather-marker { background: rgba(15, 23, 27, .9); border: 2px solid #5cf2ed; border-radius: 6px; padding: 3px 6px; pointer-events: none; text-align: center; line-height: 1.2; }
+.weather-waves { font: bold 9px monospace; color: #5cf2ed; }
+.weather-current { font: 8px monospace; color: #81969c; }
+
+/* Speed input in nav panel */
+.nav-speed-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid rgba(80, 97, 105, .44); border-radius: 7px; background: rgba(15, 23, 27, .6); }
+.nav-speed-row label { color: #81969c; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.nav-speed-input { width: 50px; padding: 4px 6px; border: 1px solid rgba(80, 97, 105, .44); border-radius: 4px; background: rgba(15, 23, 27, .8); color: #66e8e5; font: 11px monospace; text-align: center; }
+.nav-speed-input:focus { outline: none; border-color: #5cf2ed; }
+.nav-speed-unit { color: #81969c; font-size: 10px; }
+
+/* Waypoint list in nav panel */
+.nav-waypoints { margin-top: 10px; }
+.nav-waypoint-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #c6d5d8; font-size: 11px; font-weight: 700; }
+.nav-icon-button { width: 28px; height: 28px; }
+.nav-waypoint-add { width: 100%; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; margin: 8px 0 4px; border: 1px solid rgba(167, 139, 250, .42); border-radius: 6px; background: rgba(167, 139, 250, .08); color: #ddd5ff; cursor: pointer; font-size: 11px; font-weight: 800; }
+.nav-waypoint-add.active { border-color: #c4b5fd; background: rgba(167, 139, 250, .18); color: #ffffff; }
+.nav-waypoint-item { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; margin-top: 4px; border: 1px solid rgba(167, 139, 250, .2); border-radius: 5px; background: rgba(167, 139, 250, .05); }
+.nav-waypoint-item span { color: #a78bfa; font-size: 10px; font-family: monospace; }
+.nav-waypoint-remove { border: 0; background: transparent; color: #9db0b4; cursor: pointer; padding: 2px; }
+.nav-waypoint-remove:hover { color: #ff756f; }
+.nav-add-waypoint { width: 100%; margin-top: 6px; font-size: 11px; padding: 6px; }
+
+/* Mobile */
+@media (max-width: 800px) {
+  .map-view-button span { display: none; }
+  .map-view-button { padding: 6px 8px; }
+  .nav-planner { left: 8px; right: 8px; top: 76px; width: auto; min-width: 0; max-height: calc(58vh - 76px); }
+  .nav-history { left: 8px; right: 8px; top: auto; bottom: 34px; width: auto; max-height: 34vh; }
+  .nav-metrics-grid, .nav-route-metrics, .nav-mode-grid { grid-template-columns: 1fr; }
+  .nautical-info-card { left: 8px; bottom: 38vh; }
+}
