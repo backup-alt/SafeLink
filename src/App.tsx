@@ -498,7 +498,7 @@ export default function App() {
 
       <header className="topbar glass">
         <button className="menu-button" type="button" aria-label="Menu"><Menu size={22} /></button>
-        <div className="brand"><span className="brand-mark">O</span><div><b>OR<span>CA</span></b><small>OCEAN CONDITIONS</small></div></div>
+        <div className="brand"><span className="brand-mark">S</span><div><b>SAFE<span>LINK</span></b><small>OCEAN CONDITIONS</small></div></div>
         <form className={`search ${searchError ? 'invalid' : ''}`} onSubmit={search}>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Coordinates: 12.6, 80.4 or 12°N 80°E" aria-label="Search latitude and longitude" />
           <button type="submit" aria-label="Search coordinates"><Search size={19} /></button>
