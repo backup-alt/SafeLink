@@ -129,6 +129,18 @@ class AgentTests(IsolatedAsyncioTestCase):
         self.assertIn('API credits', message)
         self.assertNotIn('SENSITIVE', message)
 
+    async def test_streaming_quota_error_without_http_status(self):
+        from openai import APIError
+        import httpx
+        error = APIError('SENSITIVE', request=httpx.Request('POST', 'https://api.openai.com/v1/responses'),
+                         body={'code': 'insufficient_quota', 'message': 'SENSITIVE'})
+        client = FakeClient([[error]])
+        with self.assertLogs('backend.ai.agent', 'WARNING') as logs:
+            events = [x async for x in Agent(Mock(), lambda: client).stream(request(), Conversation('one'), AIConfig.read())]
+        self.assertIn('site owner', events[-1]['label'])
+        self.assertIn('insufficient_quota', str(logs.output))
+        self.assertNotIn('SENSITIVE', json.dumps(events) + str(logs.output))
+
     async def test_cancellation_closes_upstream(self):
         entered = asyncio.Event()
         class Waiting(FakeStream):

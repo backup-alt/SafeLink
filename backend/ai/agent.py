@@ -12,18 +12,39 @@ from .tools import TOOL_MODELS, definitions
 LOG = logging.getLogger(__name__)
 
 
+def upstream_error_code(error):
+    # Only expose known diagnostic codes, never upstream messages or bodies.
+    known = {'insufficient_quota', 'credit_balance_exhausted', 'rate_limit_exceeded',
+             'organization_spend_limit_exceeded', 'project_spend_limit_exceeded',
+             'organization_usage_limit_exceeded', 'invalid_api_key', 'model_not_found',
+             'invalid_request_error', 'server_error'}
+    body = getattr(error, 'body', None)
+    body = body if isinstance(body, dict) else {}
+    for value in (getattr(error, 'code', None), body.get('code'), body.get('type')):
+        if isinstance(value, str) and value in known:
+            return value
+    return 'unknown'
+
+
 def public_error_message(error):
     """Return actionable, non-sensitive text for an upstream failure."""
     status = getattr(error, 'status_code', None) or getattr(error, 'status', None)
-    if status == 429 or isinstance(error, RateLimitError):
+    code = upstream_error_code(error)
+    if code in {'insufficient_quota', 'credit_balance_exhausted',
+                'organization_spend_limit_exceeded', 'project_spend_limit_exceeded',
+                'organization_usage_limit_exceeded'}:
+        return ('SafeLink AI is unavailable because its OpenAI API account has exhausted credits '
+                'or reached a spending/usage limit. The site owner must check OpenAI billing '
+                'and project limits to restore access. The map remains available.')
+    if status == 429 or isinstance(error, RateLimitError) or code == 'rate_limit_exceeded':
         return ('SafeLink AI cannot access the model because the OpenAI project is rate-limited, '
                 'out of API credits, or blocked by a spend limit. Check OpenAI API billing and '
                 'project limits, then retry.')
-    if status == 401:
+    if status == 401 or code == 'invalid_api_key':
         return 'SafeLink AI was rejected by OpenAI. Replace OPENAI_API_KEY with a valid project API key.'
     if status == 403:
         return 'This OpenAI project does not have permission to use the configured model.'
-    if status == 404:
+    if status == 404 or code == 'model_not_found':
         return 'The configured OpenAI model is not available to this API project.'
     if isinstance(error, (TimeoutError, APITimeoutError)):
         return 'SafeLink AI took too long. Please retry with a shorter question.'
@@ -132,5 +153,6 @@ class Agent:
             raise
         except Exception as error:
             status = getattr(error, 'status_code', None) or getattr(error, 'status', None)
-            LOG.warning('SafeLink generation failed (%s, HTTP %s)', type(error).__name__, status or 'n/a')
+            LOG.warning('SafeLink generation failed (%s, HTTP %s, code %s)',
+                        type(error).__name__, status or 'n/a', upstream_error_code(error))
             yield event('error', label=public_error_message(error))
