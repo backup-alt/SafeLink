@@ -23,6 +23,10 @@ export async function clearConversation(id: string) {
   const response = await fetch(`/api/chat/session/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (response.status !== 404) await checked(response)
 }
+export async function getHistory(id: string): Promise<{ messages: Array<{ role: string; content: string; timestamp: number }>; turns: number }> {
+  const response = await checked(await fetch(`/api/chat/session/${encodeURIComponent(id)}/history`))
+  return await response.json()
+}
 export async function acknowledgeMapAction(conversation: string, action: string, status: 'accepted' | 'failed', signal: AbortSignal) {
   await checked(await fetch(`/api/chat/session/${encodeURIComponent(conversation)}/actions/${encodeURIComponent(action)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }), signal,

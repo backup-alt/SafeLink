@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, LoaderCircle, MessageCircle, Send, Square, Trash2, X } from 'lucide-react'
-import { acknowledgeMapAction, clearConversation, createConversation, streamChat } from './chatApi'
+import { Check, ChevronDown, History, LoaderCircle, MessageCircle, Send, Square, Trash2, X } from 'lucide-react'
+import { acknowledgeMapAction, clearConversation, createConversation, getHistory, streamChat } from './chatApi'
 import type { ChatMessage, ChatStreamEvent, MapAction, MapContext, ToolActivity } from './chatTypes'
 import { safeWebURL } from './chatTypes'
 import './chat.css'
@@ -21,6 +21,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   const [open, setOpen] = useState(false), [input, setInput] = useState(''), [busy, setBusy] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([]), [notice, setNotice] = useState<string | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const conversation = useRef<string | null>(null), abort = useRef<AbortController | null>(null)
   const scroll = useRef<HTMLDivElement>(null), atBottom = useRef(true)
   const actions = useRef<Promise<unknown>>(Promise.resolve())
@@ -92,16 +93,39 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
     if (id) try { await clearConversation(id) } catch { setNotice('New conversation started. The previous server session will expire automatically.') }
   }
 
+  const loadHistory = async () => {
+    if (!conversation.current) return
+    try {
+      const history = await getHistory(conversation.current)
+      setNotice(`Loaded ${history.turns} conversation turns from history`)
+    } catch (error) {
+      setNotice('Could not load conversation history')
+    }
+  }
+
   return <>
     {!open && <button className="safelink-launch glass" onClick={() => setOpen(true)} type="button"><MessageCircle size={18} /> Ask SafeLink {busy && <LoaderCircle className="spin" size={14} />}</button>}
     <aside className={`safelink-chat glass ${open ? 'is-open' : ''}`} aria-label="SafeLink marine assistant" hidden={!open}>
       <header className="safelink-chat-header"><div><b>SAFELINK</b><small>Marine information assistant</small></div>
+        <button type="button" onClick={() => setHistoryOpen(!historyOpen)} disabled={!conversation.current} aria-label="View history" title="View conversation history"><History size={17} /></button>
         <button type="button" onClick={() => void clear()} disabled={busy} aria-label="New conversation"><Trash2 size={17} /></button>
         <button type="button" onClick={() => setOpen(false)} aria-label="Collapse SafeLink chat"><X size={19} /></button>
       </header>
-      <div className="safelink-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
-      {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
-      {notice && <div className="safelink-notice">{notice}</div>}
+      <div className=”safelink-context”>{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
+      {configured === false && <div className=”safelink-notice” role=”status”>Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
+      {notice && <div className=”safelink-notice”>{notice}</div>}
+      {historyOpen && conversation.current && (
+        <div className=”safelink-history-panel”>
+          <div className=”safelink-history-header”>
+            <strong>Conversation History</strong>
+            <button type=”button” onClick={() => setHistoryOpen(false)} aria-label=”Close history”><X size={16} /></button>
+          </div>
+          <div className=”safelink-history-info”>
+            <p>This conversation is stored in memory and will expire after 2 hours of inactivity.</p>
+            <button type=”button” onClick={() => void loadHistory()} disabled={busy}>Refresh History</button>
+          </div>
+        </div>
+      )}
       <div className="safelink-messages" ref={scroll} onScroll={() => { const el = scroll.current; if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
         {!messages.length && <div className="safelink-welcome"><h2>Explore with evidence.</h2><p>Ask about a selected point, official PFZ advisories, or ocean conditions. I can update the map while explaining the data.</p>
           {['Find the nearest PFZ from the selected point.', 'What are the wave conditions here?', 'Check current official marine warnings for this area.'].map(q => <button type="button" key={q} onClick={() => setInput(q)}>{q}</button>)}

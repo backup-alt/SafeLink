@@ -220,6 +220,7 @@ export default function App() {
   const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('pfz')
   const locationRequest = useRef(0)
   const locationHeading = useRef<HTMLHeadingElement>(null)
+  const [hasRequestedStartupLocation, setHasRequestedStartupLocation] = useState(false)
 
   const cancelLocation = useCallback(() => {
     locationRequest.current += 1
@@ -236,6 +237,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', escape)
   }, [locationStep, cancelLocation])
   useEffect(() => () => { locationRequest.current += 1 }, [])
+
+  useEffect(() => {
+    if (!hasRequestedStartupLocation) {
+      const timer = window.setTimeout(() => {
+        setHasRequestedStartupLocation(true)
+        openLocationPicker()
+      }, 1500)
+      return () => window.clearTimeout(timer)
+    }
+  }, [hasRequestedStartupLocation])
 
   const openLocationPicker = () => {
     setLocationPurpose('pfz')

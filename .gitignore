@@ -29,3 +29,4 @@ copernicus_data/
 !public/indian-ocean-land-mask.png
 .DS_Store
 Thumbs.db
+.claude/settings.json

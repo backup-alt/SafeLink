@@ -31,4 +31,12 @@
 .safelink-compose button { align-self:flex-end; background:#51d7cc; color:#123335; border:0; padding:10px; border-radius:9px; }
 .safelink-chat footer { text-align:center; font-size:9px; color:#97b4bc; padding:0 10px 10px; background:#102228; }
 .safelink-error { color:#ffd28d; font-size:11px; }.safelink-retry { background:transparent; color:#70e4dc; border:1px solid #70e4dc66; border-radius:7px; padding:5px 10px; }
+.safelink-history-panel { border-bottom:1px solid #a9dddb22; background:#0d1f25; }
+.safelink-history-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #a9dddb22; }
+.safelink-history-header strong { color:#6ee8e0; font-size:13px; }
+.safelink-history-header button { background:transparent; border:0; padding:5px; color:#b6cbd1; }
+.safelink-history-info { padding:12px 16px; }
+.safelink-history-info p { font-size:11px; color:#b6cbd1; margin-bottom:10px; line-height:1.5; }
+.safelink-history-info button { background:#51d7cc; color:#123335; border:0; padding:8px 14px; border-radius:7px; font-size:11px; cursor:pointer; }
+.safelink-history-info button:disabled { opacity:0.5; cursor:default; }
 @media(max-width:800px) { .safelink-chat { left:8px; right:8px; width:auto; top:auto; bottom:103px; height:min(73vh,700px); }.safelink-launch { left:8px; bottom:108px; } }

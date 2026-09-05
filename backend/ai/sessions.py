@@ -15,6 +15,7 @@ class Conversation:
     busy: bool = False
     history: list = field(default_factory=list)
     pending_actions: dict = field(default_factory=dict)
+    messages: list = field(default_factory=list)
 
 
 class SessionStore:

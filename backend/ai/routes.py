@@ -67,11 +67,22 @@ def create_router(repository, pfz):
         config = AIConfig.read()
         session = store.begin(body.conversation_id, owner(request), config)
 
+        # Store user message in history
+        session.messages.append({
+            'role': 'user',
+            'content': body.message,
+            'timestamp': monotonic()
+        })
+
         async def stream():
             queue = asyncio.Queue(maxsize=64)
+            assistant_message = {'role': 'assistant', 'content': '', 'timestamp': monotonic()}
+
             async def produce():
                 try:
                     async for item in agent.stream(body, session, config):
+                        if item.get('type') == 'text_delta':
+                            assistant_message['content'] += item.get('text', '')
                         await queue.put(item)
                 except asyncio.CancelledError:
                     raise
@@ -97,6 +108,9 @@ def create_router(repository, pfz):
                     await task
                 session.busy = False
                 session.touched = monotonic()
+                # Store assistant message in history
+                if assistant_message['content']:
+                    session.messages.append(assistant_message)
 
         return StreamingResponse(stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
@@ -110,6 +124,12 @@ def create_router(repository, pfz):
             raise HTTPException(404, 'Action expired or unavailable')
         pending.set_result(body.status)
         return {'received': True}
+
+    @router.get('/session/{key}/history')
+    async def get_history(key: str, request: Request):
+        check_origin(request)
+        session = store.get(key, owner(request))
+        return {'messages': session.messages, 'turns': session.turns}
 
     # References used by offline tests, never exposed in the API.
     router.agent = agent
