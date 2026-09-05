@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from backend.ai.agent import Agent
+from backend.ai.agent import Agent, public_error_message
 from backend.ai.openai_client import AIConfig
 from backend.ai.routes import create_router
 from backend.ai.schemas import ChatRequest, MAP_ACTION
@@ -118,9 +118,16 @@ class AgentTests(IsolatedAsyncioTestCase):
         for batches in ([[text('Partial'), e('response.incomplete')]],
                         [[complete('tool', [NS(type='function_call', name='get_nearest_pfz', arguments='{}', call_id='x')])]]):
             client = FakeClient(batches)
-            with patch.dict(os.environ, {'ORCA_CHAT_MAX_TOOL_ROUNDS': '1'}), self.assertLogs('backend.ai.agent', 'WARNING'):
+            with patch.dict(os.environ, {'SAFELINK_CHAT_MAX_TOOL_ROUNDS': '1'}), self.assertLogs('backend.ai.agent', 'WARNING'):
                 events = [x async for x in Agent(Mock(), lambda: client).stream(request(), Conversation('one'), AIConfig.read())]
             self.assertEqual('error', events[-1]['type'])
+
+    def test_public_error_message_classifies_status_without_leaking_body(self):
+        error = RuntimeError('SENSITIVE upstream response')
+        error.status_code = 429
+        message = public_error_message(error)
+        self.assertIn('API credits', message)
+        self.assertNotIn('SENSITIVE', message)
 
     async def test_cancellation_closes_upstream(self):
         entered = asyncio.Event()
@@ -205,6 +212,9 @@ class ChatAPITests(TestCase):
 
     def test_missing_key_non_paid_health(self):
         key = self.session()
+        health = self.client.get('/api/chat/health').json()
+        self.assertEqual('configured_unverified', health['status'])
+        self.assertIsNone(health['operational'])
         with patch.dict(os.environ, {'OPENAI_API_KEY': ''}):
             self.assertFalse(self.client.get('/api/chat/health').json()['configured'])
             self.assertEqual(503, self.client.post('/api/chat', json={'conversation_id': key, 'message': 'Hello'}).status_code)

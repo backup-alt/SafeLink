@@ -475,7 +475,7 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
     map.flyTo({ center: [action.longitude, action.latitude], zoom: action.zoom, duration: 900 })
     if (action.type === 'place_marker') {
       markerRef.current?.remove()
-      const element = document.createElement('div'); element.className = 'coordinate-marker'; element.title = 'ORCA selected point'
+      const element = document.createElement('div'); element.className = 'coordinate-marker'; element.title = 'SafeLink selected point'
       markerRef.current = new maplibregl.Marker({ element }).setLngLat([action.longitude, action.latitude]).addTo(map)
     }
   }, [mapCommand])

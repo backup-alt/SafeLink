@@ -129,6 +129,6 @@ class MarineTools:
                 return ToolResult({'accepted': True, 'action': action}, actions=[action])
         except Exception as error:
             # No argument dump, exception body or upstream response in logs/UI.
-            LOG.warning('ORCA tool failed (%s, %s)', name, type(error).__name__)
+            LOG.warning('SafeLink tool failed (%s, %s)', name, type(error).__name__)
             return ToolResult({'error': 'Invalid arguments, unavailable data, or ambiguous PFZ. Ask for clarification or use another supported source.'}, success=False)
         return ToolResult({'error': 'Unsupported tool'}, success=False)

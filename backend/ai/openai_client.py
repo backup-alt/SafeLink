@@ -29,11 +29,11 @@ class AIConfig:
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,79}', model) or model.startswith('sk-'):
             raise ValueError('Invalid model')
         return cls(model, effort, number('OPENAI_MAX_OUTPUT_TOKENS', 2500, 256, 8000),
-                   number('ORCA_CHAT_MAX_TOOL_ROUNDS', 5, 1, 8),
-                   number('ORCA_CHAT_REQUESTS_PER_MINUTE', 6, 1, 30),
-                   number('ORCA_CHAT_DAILY_REQUESTS', 100, 1, 10000),
-                   number('ORCA_CHAT_MAX_TURNS', 20, 1, 50),
-                   number('ORCA_CHAT_MAX_CONCURRENT', 3, 1, 10))
+                   number('SAFELINK_CHAT_MAX_TOOL_ROUNDS', 5, 1, 8),
+                   number('SAFELINK_CHAT_REQUESTS_PER_MINUTE', 6, 1, 30),
+                   number('SAFELINK_CHAT_DAILY_REQUESTS', 100, 1, 10000),
+                   number('SAFELINK_CHAT_MAX_TURNS', 20, 1, 50),
+                   number('SAFELINK_CHAT_MAX_CONCURRENT', 3, 1, 10))
 
 
 def health():
@@ -42,7 +42,8 @@ def health():
     except (ValueError, TypeError):
         return {'status': 'invalid_configuration', 'configured': False}
     configured = bool(os.getenv('OPENAI_API_KEY', '').strip())
-    return {'status': 'ready' if configured else 'missing_api_key', 'configured': configured,
+    return {'status': 'configured_unverified' if configured else 'missing_api_key',
+            'configured': configured, 'operational': None,
             'model': config.model, 'reasoning_effort': config.effort,
             'note': 'Configuration check only; no paid API request or model-access verification.'}
 

@@ -12,6 +12,26 @@ from .tools import TOOL_MODELS, definitions
 LOG = logging.getLogger(__name__)
 
 
+def public_error_message(error):
+    """Return actionable, non-sensitive text for an upstream failure."""
+    status = getattr(error, 'status_code', None) or getattr(error, 'status', None)
+    if status == 429 or isinstance(error, RateLimitError):
+        return ('SafeLink AI cannot access the model because the OpenAI project is rate-limited, '
+                'out of API credits, or blocked by a spend limit. Check OpenAI API billing and '
+                'project limits, then retry.')
+    if status == 401:
+        return 'SafeLink AI was rejected by OpenAI. Replace OPENAI_API_KEY with a valid project API key.'
+    if status == 403:
+        return 'This OpenAI project does not have permission to use the configured model.'
+    if status == 404:
+        return 'The configured OpenAI model is not available to this API project.'
+    if isinstance(error, (TimeoutError, APITimeoutError)):
+        return 'SafeLink AI took too long. Please retry with a shorter question.'
+    if isinstance(error, APIError):
+        return 'The AI service rejected this reply. Check OpenAI API access and project configuration.'
+    return 'SafeLink AI could not complete this request within its limits. Try a simpler question.'
+
+
 def safe_url(value):
     try:
         parsed = urlparse(value)
@@ -111,9 +131,6 @@ class Agent:
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            LOG.warning('ORCA generation failed (%s)', type(error).__name__)
-            message = ('OpenAI is rate-limited or has insufficient API quota. Please try later.' if isinstance(error, RateLimitError)
-                       else 'ORCA took too long. Please retry with a shorter question.' if isinstance(error, (TimeoutError, APITimeoutError))
-                       else 'The AI service could not complete this reply. Check API access/configuration or retry. The map is still available.' if isinstance(error, APIError)
-                       else 'ORCA could not complete this request within its limits. Try a simpler question.')
-            yield event('error', label=message)
+            status = getattr(error, 'status_code', None) or getattr(error, 'status', None)
+            LOG.warning('SafeLink generation failed (%s, HTTP %s)', type(error).__name__, status or 'n/a')
+            yield event('error', label=public_error_message(error))

@@ -1,6 +1,6 @@
-# ORCA Marine Intelligence Map
+# SafeLink Marine Intelligence Map
 
-ORCA (formerly SafeLink) is a browser-based ocean-conditions and decision-support map powered by Copernicus Marine and official INCOIS PFZ advisories. The MVP covers the Indian Ocean, Arabian Sea, and Bay of Bengal (`20°E–120°E`, `60°S–30°N`) and now includes an optional, tool-using conversational assistant.
+SafeLink is a browser-based ocean-conditions and decision-support map powered by Copernicus Marine and official INCOIS PFZ advisories. The MVP covers the Indian Ocean, Arabian Sea, and Bay of Bengal (`20°E–120°E`, `60°S–30°N`) and includes an optional, tool-using conversational assistant.
 
 ## Features
 
@@ -16,7 +16,7 @@ ORCA (formerly SafeLink) is a browser-based ocean-conditions and decision-suppor
 - Seven-day local-file retention and automatic cleanup
 - Detailed land, coastline, lake, lagoon, and river separation
 - Public local interface with no SafeLink account required
-- Streaming ORCA assistant with authoritative marine tools, optional OpenAI web search, citations, and allowlisted MapLibre actions
+- Streaming SafeLink assistant with authoritative marine tools, optional OpenAI web search, citations, and allowlisted MapLibre actions
 
 SafeLink is intended for visualization and situational awareness. It is not certified navigational or safety guidance.
 
@@ -167,7 +167,7 @@ timestamp to the selected timeline time. The response includes the actual
 `time` and `unit`; each sample's time is displayed separately. Missing data and
 points outside coverage display **Unavailable**, without hiding the PFZ result.
 Timeline changes refresh conditions but do not repeat the geometry lookup.
-There is no spatial/temporal extrapolation, catch prediction, or new ORCA chat
+There is no spatial/temporal extrapolation, catch prediction, or new SafeLink chat
 integration. These endpoints provide the data needed for a future assistant.
 
 With the standard start scripts, SafeLink checks for newer Copernicus data shortly after startup and then every six hours. Downloaded products are stored in `copernicus_data/`, which is intentionally excluded from Git. Files older than seven days are removed automatically.
@@ -201,11 +201,11 @@ pnpm run build
 
 On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` and use `/` in paths.
 
-## ORCA conversational assistant
+## SafeLink conversational assistant
 
 The assistant uses the official OpenAI Python SDK and the Responses API with
 `gpt-5.5`. OpenAI's built-in web search is available to the model for fresh
-external notices and reports; ORCA's own functions remain the source for PFZ and
+external notices and reports; SafeLink's own functions remain the source for PFZ and
 Copernicus values. Chat is optional: if it is not configured or has an error,
 the map and every data API continue to work.
 
@@ -218,7 +218,7 @@ FastAPI -- OpenAI Responses API (GPT-5.5)
   |               |
   |               +-- Web search + cited public sources
   |
-  +-- ORCA marine tools
+  +-- SafeLink marine tools
   |      +-- INCOIS PFZ cache and nearest-line calculation
   |      +-- Copernicus native-grid point sampling
   |      +-- data availability and map-label place lookup
@@ -350,7 +350,7 @@ SAFELINK_AUTO_REFRESH=true
 
 ### Configure OpenAI on Railway
 
-1. Open the Railway project and select the ORCA/SafeLink service.
+1. Open the Railway project and select the SafeLink service.
 2. Open **Variables**.
 3. Add `OPENAI_API_KEY` with your OpenAI API key.
 4. Add `OPENAI_MODEL=gpt-5.5`.
@@ -359,8 +359,14 @@ SAFELINK_AUTO_REFRESH=true
 7. Save/apply the variables. Railway normally redeploys automatically; otherwise
    open Deployments and choose **Redeploy**.
 8. Open `https://<railway-domain>/api/chat/health`. Expect `configured: true`,
-   `model: "gpt-5.5"`, and `status: "ready"`. This is configuration-only; send a
-   small chat message to manually confirm key access and quota when you choose.
+   `model: "gpt-5.5"`, and `status: "configured_unverified"`. This is
+   configuration-only; send a small chat message to manually confirm key access
+   and quota when you choose.
+
+If a chat request returns HTTP 429, check the OpenAI Platform project's credit
+balance, project spend limit, organization spend/usage limit, and request rate.
+`/api/chat/health` deliberately makes no paid request, so `configured: true` does
+not prove that the selected project currently has usable API quota.
 
 Do not upload `.env` or add the key to GitHub/Vite variables. Railway production
 uses service Variables. Existing deployments still require the Copernicus,

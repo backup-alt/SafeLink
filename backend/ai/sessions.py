@@ -50,9 +50,9 @@ class SessionStore:
         if value.turns >= config.turns:
             raise HTTPException(429, 'Conversation limit reached. Start a new conversation.')
         if len(self.usage) >= config.daily:
-            raise HTTPException(429, 'The daily ORCA chat limit has been reached. The map is still available.')
+            raise HTTPException(429, 'The daily SafeLink chat limit has been reached. The map is still available.')
         if sum(x.busy for x in self.sessions.values()) >= config.concurrent:
-            raise HTTPException(429, 'ORCA is busy. Please try again shortly.')
+            raise HTTPException(429, 'SafeLink AI is busy. Please try again shortly.')
         if sum(user == owner and monotonic() - stamp < 60 for stamp, user in self.usage) >= config.rpm:
             raise HTTPException(429, 'Please wait a minute before sending more messages.')
         self.usage.append((monotonic(), owner))

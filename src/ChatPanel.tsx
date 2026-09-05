@@ -87,34 +87,34 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   }
 
   return <>
-    {!open && <button className="orca-launch glass" onClick={() => setOpen(true)} type="button"><MessageCircle size={18} /> Ask ORCA {busy && <LoaderCircle className="spin" size={14} />}</button>}
-    <aside className={`orca-chat glass ${open ? 'is-open' : ''}`} aria-label="ORCA marine assistant" hidden={!open}>
-      <header className="orca-chat-header"><div><b>ORCA</b><small>Marine information assistant</small></div>
+    {!open && <button className="safelink-launch glass" onClick={() => setOpen(true)} type="button"><MessageCircle size={18} /> Ask SafeLink {busy && <LoaderCircle className="spin" size={14} />}</button>}
+    <aside className={`safelink-chat glass ${open ? 'is-open' : ''}`} aria-label="SafeLink marine assistant" hidden={!open}>
+      <header className="safelink-chat-header"><div><b>SAFELINK</b><small>Marine information assistant</small></div>
         <button type="button" onClick={() => void clear()} disabled={busy} aria-label="New conversation"><Trash2 size={17} /></button>
-        <button type="button" onClick={() => setOpen(false)} aria-label="Collapse ORCA chat"><X size={19} /></button>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Collapse SafeLink chat"><X size={19} /></button>
       </header>
-      <div className="orca-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
-      {configured === false && <div className="orca-notice" role="status">Chat is unavailable or not configured. The map still works. Add the OpenAI key in backend settings.</div>}
-      {notice && <div className="orca-notice">{notice}</div>}
-      <div className="orca-messages" ref={scroll} onScroll={() => { const el = scroll.current; if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
-        {!messages.length && <div className="orca-welcome"><h2>Explore with evidence.</h2><p>Ask about a selected point, official PFZ advisories, or ocean conditions. I can update the map while explaining the data.</p>
+      <div className="safelink-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
+      {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the OpenAI key in backend settings.</div>}
+      {notice && <div className="safelink-notice">{notice}</div>}
+      <div className="safelink-messages" ref={scroll} onScroll={() => { const el = scroll.current; if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
+        {!messages.length && <div className="safelink-welcome"><h2>Explore with evidence.</h2><p>Ask about a selected point, official PFZ advisories, or ocean conditions. I can update the map while explaining the data.</p>
           {['Find the nearest PFZ from the selected point.', 'What are the wave conditions here?', 'Check current official marine warnings for this area.'].map(q => <button type="button" key={q} onClick={() => setInput(q)}>{q}</button>)}
           <small>Your message and compact map context are sent to OpenAI when you send. No continuous location tracking.</small>
         </div>}
-        {messages.map((message, index) => <article className={`orca-message ${message.role}`} key={message.id}>
-          <div className="orca-message-role">{message.role === 'user' ? 'You' : 'ORCA'}{message.state === 'streaming' && <span role="status">Working…</span>}</div>
-          {message.activities.length > 0 && <details className="orca-activity" open={message.state === 'streaming' ? true : undefined}>
+        {messages.map((message, index) => <article className={`safelink-message ${message.role}`} key={message.id}>
+          <div className="safelink-message-role">{message.role === 'user' ? 'You' : 'SafeLink'}{message.state === 'streaming' && <span role="status">Working…</span>}</div>
+          {message.activities.length > 0 && <details className="safelink-activity" open={message.state === 'streaming' ? true : undefined}>
             <summary><ChevronDown size={13} /> Sources & actions · {message.activities.filter(a => a.id !== 'status').length}</summary>
             {message.activities.map(a => <div key={a.id}>{a.state === 'running' ? <LoaderCircle size={13} className="spin" /> : a.state === 'done' ? <Check size={13} /> : <span>!</span>}<span>{a.label}{a.source && <small>{a.source}</small>}</span></div>)}
           </details>}
-          <div className="orca-answer">{answerText(message)}</div>
-          {message.error && <p className="orca-error" role="alert">{message.error}</p>}
-          {message.sources.length > 0 && <details className="orca-sources"><summary>Web sources · {message.sources.length}</summary>{message.sources.map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
-          {['error', 'stopped'].includes(message.state) && !busy && <button className="orca-retry" type="button" onClick={() => void send(messages[index - 1]?.text ?? '')}>Retry</button>}
+          <div className="safelink-answer">{answerText(message)}</div>
+          {message.error && <p className="safelink-error" role="alert">{message.error}</p>}
+          {message.sources.length > 0 && <details className="safelink-sources"><summary>Web sources · {message.sources.length}</summary>{message.sources.map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
+          {['error', 'stopped'].includes(message.state) && !busy && <button className="safelink-retry" type="button" onClick={() => void send(messages[index - 1]?.text ?? '')}>Retry</button>}
         </article>)}
       </div>
-      <form className="orca-compose" onSubmit={e => { e.preventDefault(); void send(input) }}>
-        <textarea aria-label="Message ORCA" placeholder="Ask about this point or a PFZ…" maxLength={4000} value={input} onChange={e => setInput(e.target.value)}
+      <form className="safelink-compose" onSubmit={e => { e.preventDefault(); void send(input) }}>
+        <textarea aria-label="Message SafeLink" placeholder="Ask about this point or a PFZ…" maxLength={4000} value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input) } }} />
         {busy ? <button type="button" aria-label="Stop generation" onClick={() => abort.current?.abort()}><Square size={18} /></button>
           : <button type="submit" aria-label="Send message" disabled={!input.trim()}><Send size={18} /></button>}

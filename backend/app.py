@@ -122,7 +122,7 @@ def _validate_tile(z: int, x: int, y: int) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if not ai_health()['configured']:
-        logging.getLogger(__name__).warning('ORCA chat unavailable: check server AI configuration. Map services remain enabled.')
+        logging.getLogger(__name__).warning('SafeLink chat unavailable: check server AI configuration. Map services remain enabled.')
     task = (
         asyncio.create_task(_huggingface_refresh_loop())
         if HF_MODE
@@ -137,7 +137,7 @@ async def lifespan(_: FastAPI):
             await task
 
 
-app = FastAPI(title="ORCA Ocean API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="SafeLink Ocean API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.add_middleware(
     CORSMiddleware,

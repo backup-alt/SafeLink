@@ -6,10 +6,10 @@ async function checked(response: Response) {
     const labels: Record<number, string> = {
       401: 'Browser session unavailable. Start a new conversation.', 403: 'This chat request was blocked.',
       404: 'Conversation expired. Start a new conversation.', 409: 'The previous reply is still stopping. Try again shortly.',
-      422: 'Please check your message or map selection.', 429: 'ORCA usage limit reached or service busy. Try later, or start a new conversation if this one is long.',
-      503: 'ORCA is not configured. Add the server OpenAI API key and valid AI settings. The map remains available.',
+      422: 'Please check your message or map selection.', 429: 'SafeLink usage limit reached or service busy. Try later, or start a new conversation if this one is long.',
+      503: 'SafeLink is not configured. Add the server OpenAI API key and valid AI settings. The map remains available.',
     }
-    throw new Error(labels[response.status] ?? 'ORCA is temporarily unavailable. Please retry.')
+    throw new Error(labels[response.status] ?? 'SafeLink is temporarily unavailable. Please retry.')
   }
   return response
 }

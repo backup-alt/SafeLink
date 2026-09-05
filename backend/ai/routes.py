@@ -14,7 +14,7 @@ from .schemas import ChatRequest, event
 from .sessions import SessionStore
 from .tools import MarineTools
 
-COOKIE = 'orca_browser'
+COOKIE = 'safelink_browser'
 
 
 def create_router(repository, pfz):
@@ -25,7 +25,7 @@ def create_router(repository, pfz):
     def owner(request):
         value = request.cookies.get(COOKIE, '')
         if not re.fullmatch('[a-f0-9]{64}', value):
-            raise HTTPException(401, 'Start a new ORCA conversation.')
+            raise HTTPException(401, 'Start a new SafeLink conversation.')
         return value
 
     def check_origin(request):
@@ -63,7 +63,7 @@ def create_router(repository, pfz):
     async def chat(body: ChatRequest, request: Request):
         check_origin(request)
         if not health()['configured']:
-            raise HTTPException(503, 'ORCA chat is not configured. Set the server OPENAI_API_KEY and valid AI settings. The map remains available.')
+            raise HTTPException(503, 'SafeLink chat is not configured. Set the server OPENAI_API_KEY and valid AI settings. The map remains available.')
         config = AIConfig.read()
         session = store.begin(body.conversation_id, owner(request), config)
 
@@ -76,7 +76,7 @@ def create_router(repository, pfz):
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    await queue.put(event('error', label='ORCA could not finish this reply. Please retry.'))
+                    await queue.put(event('error', label='SafeLink could not finish this reply. Please retry.'))
                 await queue.put(None)
             task = asyncio.create_task(produce())
             try:
