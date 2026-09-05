@@ -111,18 +111,18 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
         <button type="button" onClick={() => void clear()} disabled={busy} aria-label="New conversation"><Trash2 size={17} /></button>
         <button type="button" onClick={() => setOpen(false)} aria-label="Collapse SafeLink chat"><X size={19} /></button>
       </header>
-      <div className=”safelink-context”>{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view · click a point for “here”'} · {context.active_layer}</div>
-      {configured === false && <div className=”safelink-notice” role=”status”>Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
-      {notice && <div className=”safelink-notice”>{notice}</div>}
+      <div className="safelink-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view - click a point for "here"'} - {context.active_layer}</div>
+      {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
+      {notice && <div className="safelink-notice">{notice}</div>}
       {historyOpen && conversation.current && (
-        <div className=”safelink-history-panel”>
-          <div className=”safelink-history-header”>
+        <div className="safelink-history-panel">
+          <div className="safelink-history-header">
             <strong>Conversation History</strong>
-            <button type=”button” onClick={() => setHistoryOpen(false)} aria-label=”Close history”><X size={16} /></button>
+            <button type="button" onClick={() => setHistoryOpen(false)} aria-label="Close history"><X size={16} /></button>
           </div>
-          <div className=”safelink-history-info”>
+          <div className="safelink-history-info">
             <p>This conversation is stored in memory and will expire after 2 hours of inactivity.</p>
-            <button type=”button” onClick={() => void loadHistory()} disabled={busy}>Refresh History</button>
+            <button type="button" onClick={() => void loadHistory()} disabled={busy}>Refresh History</button>
           </div>
         </div>
       )}
@@ -132,24 +132,24 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
           <small>Your message and compact map context are sent to the configured AI provider when you send. No continuous location tracking.</small>
         </div>}
         {messages.map((message, index) => <article className={`safelink-message ${message.role}`} key={message.id}>
-          <div className="safelink-message-role">{message.role === 'user' ? 'You' : 'SafeLink'}{message.state === 'streaming' && <span role="status">Working…</span>}</div>
+          <div className="safelink-message-role">{message.role === 'user' ? 'You' : 'SafeLink'}{message.state === 'streaming' && <span role="status">Working...</span>}</div>
           {message.activities.length > 0 && <details className="safelink-activity" open={message.state === 'streaming' ? true : undefined}>
-            <summary><ChevronDown size={13} /> Sources & actions · {message.activities.filter(a => a.id !== 'status').length}</summary>
+            <summary><ChevronDown size={13} /> Sources & actions - {message.activities.filter(a => a.id !== 'status').length}</summary>
             {message.activities.map(a => <div key={a.id}>{a.state === 'running' ? <LoaderCircle size={13} className="spin" /> : a.state === 'done' ? <Check size={13} /> : <span>!</span>}<span>{a.label}{a.source && <small>{a.source}</small>}</span></div>)}
           </details>}
           <div className="safelink-answer">{answerText(message)}</div>
           {message.error && <p className="safelink-error" role="alert">{message.error}</p>}
-          {message.sources.length > 0 && <details className="safelink-sources"><summary>Web sources · {message.sources.length}</summary>{message.sources.map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
+          {message.sources.length > 0 && <details className="safelink-sources"><summary>Web sources - {message.sources.length}</summary>{message.sources.map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
           {['error', 'stopped'].includes(message.state) && !busy && <button className="safelink-retry" type="button" onClick={() => void send(messages[index - 1]?.text ?? '')}>Retry</button>}
         </article>)}
       </div>
       <form className="safelink-compose" onSubmit={e => { e.preventDefault(); void send(input) }}>
-        <textarea aria-label="Message SafeLink" placeholder="Ask about this point or a PFZ…" maxLength={4000} value={input} onChange={e => setInput(e.target.value)}
+        <textarea aria-label="Message SafeLink" placeholder="Ask about this point or a PFZ..." maxLength={4000} value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input) } }} />
         {busy ? <button type="button" aria-label="Stop generation" onClick={() => abort.current?.abort()}><Square size={18} /></button>
           : <button type="submit" aria-label="Send message" disabled={!input.trim()}><Send size={18} /></button>}
       </form>
-      <footer>Advisory information—not certified navigation or safety guidance.</footer>
+      <footer>Advisory information-not certified navigation or safety guidance.</footer>
     </aside>
   </>
 }
