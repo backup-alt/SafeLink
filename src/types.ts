@@ -18,6 +18,7 @@ export interface Vessel {
 }
 
 export interface NavRoute {
+  label: string
   coordinates: [number, number][]
   distance_km: number
   eta_hours: number

@@ -10,6 +10,8 @@ interface NavigationPanelProps {
   originDetails: NauticalPointDetails | null
   destinationDetails: NauticalPointDetails | null
   route: NavRoute | null
+  alternatives: NavRoute[]
+  selectedRouteIndex: number
   loading: boolean
   pointLoading: 'origin' | 'destination' | null
   picking: NavPickTarget
@@ -27,6 +29,7 @@ interface NavigationPanelProps {
   onUseGeocode: (type: 'origin' | 'destination', result: GeocodeResult) => void
   onSetRouteMode: (mode: Exclude<RouteMode, null>) => void
   onCalculate: () => void
+  onSelectRoute: (index: number) => void
   onSaveRoute: () => void
   onLoadRoute: (route: SavedNavRoute) => void
   onDeleteSavedRoute: (id: string) => void
@@ -130,11 +133,11 @@ function PointSetter({ type, point, details, loading, picking, allowCurrentLocat
 }
 
 export default function NavigationPanel({
-  origin, destination, originDetails, destinationDetails, route, loading, pointLoading,
+  origin, destination, originDetails, destinationDetails, route, alternatives, selectedRouteIndex, loading, pointLoading,
   picking, routeMode, waypoints, speed, showWeather, savedRoutes, geocodeResults, geocodeLoading,
   geocodeTarget,
   onUseCurrentLocation, onPickOnMap, onSearchPoint, onUseGeocode, onSetRouteMode,
-  onCalculate, onSaveRoute, onLoadRoute, onDeleteSavedRoute, onClear, onClose,
+  onCalculate, onSelectRoute, onSaveRoute, onLoadRoute, onDeleteSavedRoute, onClear, onClose,
   onAddWaypoint, onRemoveWaypoint, onSpeedChange, onWeatherToggle,
 }: NavigationPanelProps) {
   const canPlan = !!origin && !!destination
@@ -240,6 +243,35 @@ export default function NavigationPanel({
               <button type="button" className="nav-primary-button" onClick={onCalculate} disabled={loading || !routeMode}>
                 {loading ? 'Calculating...' : route ? 'Recalculate Route' : routeMode === 'manual' ? 'Calculate Manual Route' : 'Generate Route'}
               </button>
+            </section>
+          )}
+
+          {route && (
+            <section className="nav-workflow-section nav-alternatives">
+              <div className="nav-section-title">
+                <Route size={15} />
+                <span>Route alternatives</span>
+              </div>
+              <div className="nav-alternative-list">
+                {alternatives.map((alt, index) => (
+                  <button
+                    type="button"
+                    key={alt.label}
+                    className={`nav-alternative-card ${index === selectedRouteIndex ? 'selected' : ''}`}
+                    onClick={() => onSelectRoute(index)}
+                  >
+                    <div className="nav-alt-header">
+                      <span className={`nav-alt-dot nav-alt-dot-${index}`} />
+                      <strong>{alt.label}</strong>
+                    </div>
+                    <div className="nav-alt-metrics">
+                      <div><span>Distance</span><b>{alt.distance_km.toFixed(1)} km</b></div>
+                      <div><span>ETA</span><b>{alt.eta_hours.toFixed(1)} h</b></div>
+                      <div><span>Heading</span><b>{alt.heading.toFixed(0)}&deg;</b></div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </section>
           )}
 
