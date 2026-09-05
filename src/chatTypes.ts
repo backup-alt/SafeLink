@@ -26,6 +26,7 @@ export interface ChatMessage {
 export interface ConversationState { conversation_id: string }
 export interface ChatRequest { conversation_id: string; message: string; map_context: MapContext }
 export type ChatStreamEvent =
+  | { type: 'sources'; sources: WebSource[] }
   | { type: 'status' | 'error'; label: string }
   | { type: 'tool_start' | 'tool_result'; id: string; tool: string; label: string; source?: string; success?: boolean }
   | { type: 'web_search_start'; id: string; label: string }
@@ -63,6 +64,7 @@ export function parseChatEvent(value: unknown): ChatStreamEvent {
   let valid = false
   switch (value.type) {
     case 'done': valid = true; break
+    case 'sources': valid = Array.isArray(value.sources) && value.sources.length <= 20 && value.sources.every(s => record(s) && safeWebURL(s.url) && text(s.title)); break
     case 'status': case 'error': valid = text(value.label); break
     case 'text_delta': valid = text(value.text); break
     case 'map_action': valid = isMapAction(value.action) && text(value.label) && (value.id === undefined || text(value.id, 80)); break

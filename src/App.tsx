@@ -214,13 +214,12 @@ export default function App() {
   const [nearestLoading, setNearestLoading] = useState(false)
   const [nearestError, setNearestError] = useState<string | null>(null)
   const [conditions, setConditions] = useState<Partial<Record<LayerId, ConditionSample | null>>>({})
-  const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>(null)
+  const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>('choose')
   const [originLocation, setOriginLocation] = useState<OriginLocation | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
-  const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('pfz')
+  const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('chat')
   const locationRequest = useRef(0)
   const locationHeading = useRef<HTMLHeadingElement>(null)
-  const [hasRequestedStartupLocation, setHasRequestedStartupLocation] = useState(false)
 
   const cancelLocation = useCallback(() => {
     locationRequest.current += 1
@@ -237,16 +236,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', escape)
   }, [locationStep, cancelLocation])
   useEffect(() => () => { locationRequest.current += 1 }, [])
-
-  useEffect(() => {
-    if (!hasRequestedStartupLocation) {
-      const timer = window.setTimeout(() => {
-        setHasRequestedStartupLocation(true)
-        openLocationPicker()
-      }, 1500)
-      return () => window.clearTimeout(timer)
-    }
-  }, [hasRequestedStartupLocation])
 
   const openLocationPicker = () => {
     setLocationPurpose('pfz')
@@ -573,6 +562,7 @@ export default function App() {
           <button className="nearest-pfz-button" type="button" onClick={() => {
             locationRequest.current += 1; setLocationStep('map'); setLocationError(null); setOriginLocation(null)
           }}>Choose on map</button>
+          <button className="nearest-pfz-button" type="button" onClick={cancelLocation}>Continue without location</button>
         </div>
         <p role="status">{locationStep === 'map' ? 'Click your starting position anywhere on the map. You can also enter coordinates in the search bar.'
           : locationStep === 'locating' ? 'Allow the browser’s location request. You can select a map point instead at any time.'

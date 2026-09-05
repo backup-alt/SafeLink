@@ -147,7 +147,7 @@ class WebSource(StrictModel):
 
 class StreamEvent(StrictModel):
     type: Literal['status', 'tool_start', 'tool_result', 'web_search_start', 'web_search_result',
-                  'map_action', 'text_delta', 'citation', 'error', 'done']
+                  'map_action', 'text_delta', 'citation', 'sources', 'error', 'done']
     label: str | None = None
     id: str | None = None
     tool: str | None = None

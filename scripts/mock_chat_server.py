@@ -36,6 +36,7 @@ class DemoClient(FakeClient):
             item = NS(type='web_search_call', id='web1', model_dump=lambda: {'status': 'completed', 'action': {'sources': [{'url': 'https://incois.gov.in/', 'title': 'INCOIS — offline fixture source'}]}})
             return SlowStream([e('response.web_search_call.in_progress', item_id='web1'), e('response.output_item.done', item=item),
                 text('Offline test answer: '), text('PFZ 097 highlighted. '), text('This is fixture data, not a live advisory. [1]'),
+                text('\n\n**Fixture summary**\n\n| Parameter | Value |\n| --- | --- |\n| Mode | Offline test |\n\n- No live forecast claims.\n- No paid API calls.'),
                 e('response.output_text.annotation.added', item_id='message-1', content_index=0,
                   annotation={'type': 'url_citation', 'url': 'https://incois.gov.in/', 'title': 'INCOIS — fixture', 'start_index': 81, 'end_index': 84}), complete('answer')])
         call = NS(type='function_call', name='get_nearest_pfz', call_id='nearest', arguments='{"latitude":11,"longitude":81}')

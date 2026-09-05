@@ -1,20 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, History, LoaderCircle, MessageCircle, Send, Square, Trash2, X } from 'lucide-react'
-import { acknowledgeMapAction, clearConversation, createConversation, getHistory, streamChat } from './chatApi'
+import { Check, ChevronDown, History, LoaderCircle, MessageCircle, Plus, Send, Square, Trash2, X } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { acknowledgeMapAction, clearConversation, createConversation, getHistory, listConversations, streamChat } from './chatApi'
+import type { SavedConversation } from './chatApi'
 import type { ChatMessage, ChatStreamEvent, MapAction, MapContext, ToolActivity } from './chatTypes'
 import { safeWebURL } from './chatTypes'
 import './chat.css'
 
 function answerText(message: ChatMessage) {
-  const chunks = []; let cursor = 0
-  for (const citation of [...message.citations].sort((a, b) => a.start - b.start)) {
-    if (citation.start < cursor || citation.end > message.text.length || !safeWebURL(citation.url)) continue
-    chunks.push(message.text.slice(cursor, citation.start))
-    chunks.push(<a key={`${citation.start}-${citation.url}`} href={citation.url} target="_blank" rel="noopener noreferrer" title={citation.title}>{message.text.slice(citation.start, citation.end) || '[Source]'}</a>)
-    cursor = citation.end
-  }
-  chunks.push(message.text.slice(cursor))
-  return chunks
+  if (message.role === 'user') return message.text
+  return <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => safeWebURL(url) ? url : ''}
+    components={{ a: ({ href, children }) => href ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
+      img: () => null }}>{message.text}</Markdown>
 }
 
 export default function ChatPanel({ context, onMapAction }: { context: MapContext; onMapAction: (action: MapAction, signal: AbortSignal) => Promise<string> }) {
@@ -22,6 +20,8 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   const [messages, setMessages] = useState<ChatMessage[]>([]), [notice, setNotice] = useState<string | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [saved, setSaved] = useState<SavedConversation[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   const conversation = useRef<string | null>(null), abort = useRef<AbortController | null>(null)
   const scroll = useRef<HTMLDivElement>(null), atBottom = useRef(true)
   const actions = useRef<Promise<unknown>>(Promise.resolve())
@@ -41,7 +41,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   const activity = (id: string, value: ToolActivity) => patch(id, m => ({ ...m, activities: [...m.activities.filter(a => a.id !== value.id), value] }))
 
   const send = async (text: string) => {
-    if (!text.trim() || abort.current) return
+    if (!text.trim() || abort.current || historyLoading) return
     const controller = new AbortController(); abort.current = controller
     const requestContext = contextRef.current
     setBusy(true); setInput(''); setNotice(null); atBottom.current = true
@@ -52,6 +52,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
       if (controller.signal.aborted) return
       switch (event.type) {
         case 'text_delta': patch(id, m => ({ ...m, text: m.text + event.text })); break
+        case 'sources': patch(id, m => ({ ...m, sources: [...m.sources, ...event.sources].filter((s, i, a) => a.findIndex(x => x.url === s.url) === i) })); break
         case 'status': activity(id, { id: 'status', label: event.label, state: 'running' }); break
         case 'tool_start': case 'tool_result': activity(id, { id: event.id, tool: event.tool, label: event.label, source: event.source,
           state: event.type === 'tool_start' ? 'running' : event.success ? 'done' : 'failed' }); break
@@ -88,41 +89,66 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
   }
   const clear = async () => {
     if (busy) return
-    const id = conversation.current; conversation.current = null
-    setMessages([]); setNotice(null)
-    if (id) try { await clearConversation(id) } catch { setNotice('New conversation started. The previous server session will expire automatically.') }
+    conversation.current = null
+    setMessages([]); setNotice(null); setHistoryOpen(false)
   }
 
   const loadHistory = async () => {
-    if (!conversation.current) return
+    setHistoryOpen(true); setHistoryLoading(true)
     try {
-      const history = await getHistory(conversation.current)
-      setNotice(`Loaded ${history.turns} conversation turns from history`)
-    } catch (error) {
-      setNotice('Could not load conversation history')
-    }
+      setSaved(await listConversations())
+    } catch { setNotice('Could not load conversation history. Please retry.') }
+    finally { setHistoryLoading(false) }
+  }
+  const resume = async (id: string) => {
+    if (busy || historyLoading) return
+    setHistoryLoading(true)
+    try {
+      const history = await getHistory(id)
+      conversation.current = id
+      setMessages(history.messages.map(m => ({ id: crypto.randomUUID(), role: m.role, text: m.content,
+        activities: m.activities ?? [], sources: m.sources ?? [], citations: [], state: m.role === 'user' || m.complete ? 'done' : 'stopped',
+        error: m.error ?? (m.role === 'assistant' && !m.complete ? 'This reply was interrupted and may be incomplete.' : undefined) })))
+      setHistoryOpen(false); setNotice('Conversation reopened. Earlier map actions are not replayed.'); atBottom.current = true
+    } catch { setNotice('This conversation is unavailable or still generating. Refresh history and try again.') }
+    finally { setHistoryLoading(false) }
+  }
+  const remove = async (id: string) => {
+    if (busy || historyLoading) return
+    setHistoryLoading(true)
+    try {
+      await clearConversation(id)
+      if (conversation.current === id) { conversation.current = null; setMessages([]) }
+      setSaved(previous => previous.filter(item => item.conversation_id !== id))
+    } catch { setNotice('Could not delete this conversation. Please retry.') }
+    finally { setHistoryLoading(false) }
   }
 
   return <>
     {!open && <button className="safelink-launch glass" onClick={() => setOpen(true)} type="button"><MessageCircle size={18} /> Ask SafeLink {busy && <LoaderCircle className="spin" size={14} />}</button>}
     <aside className={`safelink-chat glass ${open ? 'is-open' : ''}`} aria-label="SafeLink marine assistant" hidden={!open}>
       <header className="safelink-chat-header"><div><b>SAFELINK</b><small>Marine information assistant</small></div>
-        <button type="button" onClick={() => setHistoryOpen(!historyOpen)} disabled={!conversation.current} aria-label="View history" title="View conversation history"><History size={17} /></button>
-        <button type="button" onClick={() => void clear()} disabled={busy} aria-label="New conversation"><Trash2 size={17} /></button>
+        <button type="button" onClick={() => historyOpen ? setHistoryOpen(false) : void loadHistory()} disabled={busy || historyLoading} aria-label="View history" title="View conversation history"><History size={17} /></button>
+        <button type="button" onClick={() => void clear()} disabled={busy || historyLoading} aria-label="New conversation"><Plus size={17} /></button>
         <button type="button" onClick={() => setOpen(false)} aria-label="Collapse SafeLink chat"><X size={19} /></button>
       </header>
       <div className="safelink-context">{context.clicked_location ? `Selected point: ${context.clicked_location.latitude.toFixed(3)}°, ${context.clicked_location.longitude.toFixed(3)}°` : 'Using map view - click a point for "here"'} - {context.active_layer}</div>
       {configured === false && <div className="safelink-notice" role="status">Chat is unavailable or not configured. The map still works. Add the selected provider's API key in backend settings.</div>}
       {notice && <div className="safelink-notice">{notice}</div>}
-      {historyOpen && conversation.current && (
+      {historyOpen && (
         <div className="safelink-history-panel">
           <div className="safelink-history-header">
             <strong>Conversation History</strong>
             <button type="button" onClick={() => setHistoryOpen(false)} aria-label="Close history"><X size={16} /></button>
           </div>
           <div className="safelink-history-info">
-            <p>This conversation is stored in memory and will expire after 2 hours of inactivity.</p>
-            <button type="button" onClick={() => void loadHistory()} disabled={busy}>Refresh History</button>
+            <p>Recent chats in this browser. Stored on this server for up to 2 hours of inactivity; cleared on server restart. The assistant retains only limited recent context.</p>
+            {historyLoading && <p role="status">Loading…</p>}
+            {!historyLoading && !saved.length && <p>No saved conversations.</p>}
+            {saved.map(item => <div className="safelink-history-row" key={item.conversation_id}>
+              <button type="button" disabled={busy || historyLoading || item.busy} onClick={() => void resume(item.conversation_id)}>{item.title}<small>{item.turns} turns{item.busy ? ' · Working…' : ''}</small></button>
+              <button type="button" disabled={busy || historyLoading || item.busy} onClick={() => void remove(item.conversation_id)} aria-label={`Delete ${item.title}`}><Trash2 size={15} /></button>
+            </div>)}
           </div>
         </div>
       )}
@@ -134,12 +160,12 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
         {messages.map((message, index) => <article className={`safelink-message ${message.role}`} key={message.id}>
           <div className="safelink-message-role">{message.role === 'user' ? 'You' : 'SafeLink'}{message.state === 'streaming' && <span role="status">Working...</span>}</div>
           {message.activities.length > 0 && <details className="safelink-activity" open={message.state === 'streaming' ? true : undefined}>
-            <summary><ChevronDown size={13} /> Sources & actions - {message.activities.filter(a => a.id !== 'status').length}</summary>
+            <summary><ChevronDown size={13} /> Steps performed · {message.activities.filter(a => a.id !== 'status').length}</summary>
             {message.activities.map(a => <div key={a.id}>{a.state === 'running' ? <LoaderCircle size={13} className="spin" /> : a.state === 'done' ? <Check size={13} /> : <span>!</span>}<span>{a.label}{a.source && <small>{a.source}</small>}</span></div>)}
           </details>}
           <div className="safelink-answer">{answerText(message)}</div>
           {message.error && <p className="safelink-error" role="alert">{message.error}</p>}
-          {message.sources.length > 0 && <details className="safelink-sources"><summary>Web sources - {message.sources.length}</summary>{message.sources.map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
+          {message.sources.length > 0 && <details className="safelink-sources"><summary>Sources · {message.sources.length}</summary>{message.sources.filter(s => safeWebURL(s.url)).map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>)}</details>}
           {['error', 'stopped'].includes(message.state) && !busy && <button className="safelink-retry" type="button" onClick={() => void send(messages[index - 1]?.text ?? '')}>Retry</button>}
         </article>)}
       </div>
@@ -147,7 +173,7 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
         <textarea aria-label="Message SafeLink" placeholder="Ask about this point or a PFZ..." maxLength={4000} value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input) } }} />
         {busy ? <button type="button" aria-label="Stop generation" onClick={() => abort.current?.abort()}><Square size={18} /></button>
-          : <button type="submit" aria-label="Send message" disabled={!input.trim()}><Send size={18} /></button>}
+          : <button type="submit" aria-label="Send message" disabled={!input.trim() || historyLoading}><Send size={18} /></button>}
       </form>
       <footer>Advisory information-not certified navigation or safety guidance.</footer>
     </aside>

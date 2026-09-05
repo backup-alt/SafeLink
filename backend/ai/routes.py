@@ -59,6 +59,20 @@ def create_router(repository, pfz):
         del store.sessions[key]
         return {'cleared': True}
 
+    @router.get('/sessions')
+    async def list_sessions(request: Request, response: Response):
+        check_origin(request)
+        response.headers['Cache-Control'] = 'no-store'
+        token = request.cookies.get(COOKIE, '')
+        store.prune()
+        return {'conversations': [
+            {'conversation_id': key,
+             'title': next((m['content'][:80] for m in value.messages if m['role'] == 'user'), 'New conversation'),
+             'turns': value.turns, 'busy': value.busy}
+            for key, value in sorted(store.sessions.items(), key=lambda pair: pair[1].touched, reverse=True)
+            if value.owner == token
+        ]}
+
     @router.post('')
     async def chat(body: ChatRequest, request: Request):
         check_origin(request)
@@ -76,13 +90,25 @@ def create_router(repository, pfz):
 
         async def stream():
             queue = asyncio.Queue(maxsize=64)
-            assistant_message = {'role': 'assistant', 'content': '', 'timestamp': monotonic()}
+            assistant_message = {'role': 'assistant', 'content': '', 'timestamp': monotonic(), 'activities': [], 'sources': []}
 
             async def produce():
                 try:
                     async for item in agent.stream(body, session, config):
                         if item.get('type') == 'text_delta':
                             assistant_message['content'] += item.get('text', '')
+                        elif item.get('type') == 'error':
+                            assistant_message['error'] = item.get('label', 'Reply unavailable.')
+                        elif item.get('type') == 'done':
+                            assistant_message['complete'] = True
+                        elif item.get('type') == 'tool_result':
+                            assistant_message['activities'].append({
+                                'id': item['id'], 'label': item['label'], 'source': item.get('source'),
+                                'state': 'done' if item.get('success') else 'failed'})
+                        elif item.get('type') == 'citation':
+                            assistant_message['sources'].append({'url': item['url'], 'title': item['title']})
+                        elif item.get('type') in {'web_search_result', 'sources'}:
+                            assistant_message['sources'].extend(item.get('sources', []))
                         await queue.put(item)
                 except asyncio.CancelledError:
                     raise
@@ -109,8 +135,10 @@ def create_router(repository, pfz):
                 session.busy = False
                 session.touched = monotonic()
                 # Store assistant message in history
-                if assistant_message['content']:
-                    session.messages.append(assistant_message)
+                session.messages.append(assistant_message)
+                assistant_message['activities'] = assistant_message['activities'][-64:]
+                assistant_message['sources'] = list({s['url']: s for s in assistant_message['sources']}.values())[:20]
+                session.messages[:] = session.messages[-40:]
 
         return StreamingResponse(stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
@@ -126,9 +154,12 @@ def create_router(repository, pfz):
         return {'received': True}
 
     @router.get('/session/{key}/history')
-    async def get_history(key: str, request: Request):
+    async def get_history(key: str, request: Request, response: Response):
         check_origin(request)
+        response.headers['Cache-Control'] = 'no-store'
         session = store.get(key, owner(request))
+        if session.busy:
+            raise HTTPException(409, 'This conversation is still generating a reply.')
         return {'messages': session.messages, 'turns': session.turns}
 
     # References used by offline tests, never exposed in the API.

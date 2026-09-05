@@ -80,6 +80,10 @@ async def stream_groq(agent, request, session, config):
                     source_payloads.append(result.data)
                     yield event('tool_result', id=call['id'], tool=name if spec else 'unsupported', label=label,
                                 success=result.success, source=source)
+                    from .sources import tool_sources
+                    references = tool_sources(name, result)
+                    if references:
+                        yield event('sources', sources=references)
                     receipts = []
                     for action in result.actions:
                         action_id = str(uuid4())

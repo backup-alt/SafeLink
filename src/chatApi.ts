@@ -23,7 +23,12 @@ export async function clearConversation(id: string) {
   const response = await fetch(`/api/chat/session/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (response.status !== 404) await checked(response)
 }
-export async function getHistory(id: string): Promise<{ messages: Array<{ role: string; content: string; timestamp: number }>; turns: number }> {
+export type SavedConversation = { conversation_id: string; title: string; turns: number; busy: boolean }
+export async function listConversations(): Promise<SavedConversation[]> {
+  const response = await checked(await fetch('/api/chat/sessions', { cache: 'no-store' }))
+  return (await response.json()).conversations
+}
+export async function getHistory(id: string): Promise<{ messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number; complete?: boolean; error?: string; activities?: import('./chatTypes').ToolActivity[]; sources?: import('./chatTypes').WebSource[] }>; turns: number }> {
   const response = await checked(await fetch(`/api/chat/session/${encodeURIComponent(id)}/history`))
   return await response.json()
 }
