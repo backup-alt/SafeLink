@@ -2,6 +2,7 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+from uuid import uuid4
 from .agent import LOG
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
@@ -65,10 +66,23 @@ async def stream_groq(agent, request, session, config):
                     result = await asyncio.to_thread(agent.tools.run, name, arguments)
                     yield event('tool_result', id=call['id'], tool=name if spec else 'unsupported', label=label,
                                 success=result.success, source=source)
+                    receipts = []
                     for action in result.actions:
-                        yield event('map_action', action=action, label='Updating map')
+                        action_id = str(uuid4())
+                        pending = asyncio.get_running_loop().create_future()
+                        session.pending_actions[action_id] = pending
+                        try:
+                            yield event('map_action', id=action_id, action=action, label='Updating map')
+                            try:
+                                status = await asyncio.wait_for(pending, timeout=12)
+                            except TimeoutError:
+                                status = 'unconfirmed'
+                            receipts.append({'action': action['type'], 'status': status})
+                        finally:
+                            session.pending_actions.pop(action_id, None)
                     messages.append({'role': 'tool', 'tool_call_id': call['id'],
-                                     'content': json.dumps(result.data, allow_nan=False)})
+                                     'content': json.dumps({**result.data, 'browser_receipts': receipts,
+                                         'receipt_note': 'Accepted means the UI accepted the command, not a verified final rendered view or granted geolocation permission.'}, allow_nan=False)})
             raise ValueError('Tool round limit')
     except asyncio.CancelledError:
         raise

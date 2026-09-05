@@ -36,7 +36,11 @@ class GroqTests(IsolatedAsyncioTestCase):
         tools.run.return_value = ToolResult({'accepted': True}, actions=[{'type': 'select_layer', 'layer': 'waves'}])
         session = Conversation('owner')
         with patch.dict(os.environ, {'AI_PROVIDER': 'groq'}, clear=True):
-            events = [x async for x in Agent(tools, lambda: client).stream(request(), session, AIConfig.read())]
+            events = []
+            async for item in Agent(tools, lambda: client).stream(request(), session, AIConfig.read()):
+                events.append(item)
+                if item['type'] == 'map_action':
+                    session.pending_actions[item['id']].set_result('accepted')
         self.assertEqual('done', events[-1]['type'])
         tools.run.assert_called_once_with('update_map', '{"action":"test"}')
         self.assertIn('map_action', [x['type'] for x in events])

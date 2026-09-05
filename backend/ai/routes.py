@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from .agent import Agent
 from .openai_client import AIConfig, health
-from .schemas import ChatRequest, event
+from .schemas import ChatRequest, ActionReceipt, event
 from .sessions import SessionStore
 from .tools import MarineTools
 
@@ -100,6 +100,16 @@ def create_router(repository, pfz):
 
         return StreamingResponse(stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
+    @router.post('/session/{key}/actions/{action_id}')
+    async def action_receipt(key: str, action_id: str, body: ActionReceipt, request: Request):
+        check_origin(request)
+        session = store.get(key, owner(request))
+        pending = session.pending_actions.get(action_id)
+        if pending is None or pending.done():
+            raise HTTPException(404, 'Action expired or unavailable')
+        pending.set_result(body.status)
+        return {'received': True}
 
     # References used by offline tests, never exposed in the API.
     router.agent = agent

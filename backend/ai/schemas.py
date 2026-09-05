@@ -49,6 +49,10 @@ class ChatRequest(StrictModel):
         return value.strip()
 
 
+class ActionReceipt(StrictModel):
+    status: Literal['accepted', 'failed']
+
+
 class MarineArgs(Point):
     time: str | None = Field(max_length=40)
     layers: list[Layer] = Field(min_length=1, max_length=5)
@@ -65,6 +69,30 @@ class LocationArgs(StrictModel):
 
 class EmptyArgs(StrictModel):
     pass
+
+
+class WeatherArgs(Point):
+    start_time: str = Field(max_length=40)
+    end_time: str = Field(max_length=40)
+    _start = field_validator('start_time')(iso_time)
+    _end = field_validator('end_time')(iso_time)
+
+
+class PlannedTask(StrictModel):
+    id: str = Field(pattern=r'^[a-z][a-z0-9_]{0,31}$')
+    tool: Literal['get_marine_conditions', 'get_nearest_pfz', 'get_pfz_details', 'get_data_availability', 'resolve_location', 'get_weather_forecast']
+    arguments_json: str = Field(min_length=2, max_length=4000)
+
+
+class PlanArgs(StrictModel):
+    tasks: list[PlannedTask] = Field(min_length=1, max_length=4)
+
+    @field_validator('tasks')
+    @classmethod
+    def unique_ids(cls, tasks):
+        if len({task.id for task in tasks}) != len(tasks):
+            raise ValueError('Duplicate task ID')
+        return tasks
 
 
 class FlyTo(Point):

@@ -14,6 +14,7 @@ class Conversation:
     turns: int = 0
     busy: bool = False
     history: list = field(default_factory=list)
+    pending_actions: dict = field(default_factory=dict)
 
 
 class SessionStore:

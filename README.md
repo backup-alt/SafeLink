@@ -203,6 +203,29 @@ On macOS or Linux, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` 
 
 ## SafeLink conversational assistant
 
+### Marine intelligence foundation
+
+The assistant can now submit `execute_plan`: up to four schema-validated,
+independent read-only checks run concurrently. Dependent checks use subsequent
+calls with verified coordinates. Results include source/hash evidence records,
+partial-result status and explicit missing safety requirements. These are
+per-call records, not yet a persistent evidence database or calibrated risk model.
+
+`get_weather_forecast` uses the public Open-Meteo prototype endpoint for hourly
+wind, gusts, precipitation, pressure and visibility, with sea-grid selection,
+explicit UTC intervals and strict units. No additional key is required for this
+non-commercial prototype endpoint. Review service terms before commercial use.
+It supplies forecasts, not official warnings, lightning detections or tides.
+
+Groq map commands wait up to 12 seconds for a session-bound browser receipt.
+The receipt confirms UI acceptance or failure, not final rendered pixels or
+geolocation permission. The assistant receives that distinction before answering.
+
+The full roadmap is in [the technical design](docs/marine-intelligence-design.md).
+Remaining work includes persistent evidence cards, durable task graphs, reviewed
+vessel risk policies, official warnings, authoritative restrictions and validated
+routing. Current checks cannot establish that a voyage is safe.
+
 ### Recommended free-tier setup: Groq
 
 In Railway service Variables (or your ignored local `.env`), set:

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, LoaderCircle, MessageCircle, Send, Square, Trash2, X } from 'lucide-react'
-import { clearConversation, createConversation, streamChat } from './chatApi'
+import { acknowledgeMapAction, clearConversation, createConversation, streamChat } from './chatApi'
 import type { ChatMessage, ChatStreamEvent, MapAction, MapContext, ToolActivity } from './chatTypes'
 import { safeWebURL } from './chatTypes'
 import './chat.css'
@@ -62,8 +62,14 @@ export default function ChatPanel({ context, onMapAction }: { context: MapContex
         case 'map_action':
           actions.current = actions.current.then(async () => {
             if (controller.signal.aborted) return
-            const result = await actionRef.current(event.action, controller.signal)
-            activity(id, { id: `map-${crypto.randomUUID()}`, label: result, state: 'done', source: 'Map' })
+            try {
+              const result = await actionRef.current(event.action, controller.signal)
+              if (event.id && conversation.current) await acknowledgeMapAction(conversation.current, event.id, 'accepted', controller.signal)
+              activity(id, { id: `map-${crypto.randomUUID()}`, label: result, state: 'done', source: 'Map' })
+            } catch (error) {
+              if (event.id && conversation.current && !controller.signal.aborted) await acknowledgeMapAction(conversation.current, event.id, 'failed', controller.signal).catch(() => undefined)
+              throw error
+            }
           }).catch(() => activity(id, { id: `map-${crypto.randomUUID()}`, label: 'Map action unavailable; the map is unchanged.', state: 'failed' })); break
         case 'done': patch(id, m => ({ ...m, state: 'done', activities: m.activities.filter(a => a.id !== 'status') })); break
         case 'error': patch(id, m => ({ ...m, state: 'error', error: event.label, activities: m.activities.filter(a => a.id !== 'status').map(a => a.state === 'running' ? { ...a, state: 'failed' } : a) })); break

@@ -30,7 +30,7 @@ export type ChatStreamEvent =
   | { type: 'tool_start' | 'tool_result'; id: string; tool: string; label: string; source?: string; success?: boolean }
   | { type: 'web_search_start'; id: string; label: string }
   | { type: 'web_search_result'; id: string; label: string; sources: WebSource[]; source_count: number; success?: boolean }
-  | { type: 'map_action'; action: MapAction; label: string }
+  | { type: 'map_action'; action: MapAction; label: string; id?: string }
   | { type: 'text_delta'; text: string }
   | ({ type: 'citation' } & Citation)
   | { type: 'done' }
@@ -65,7 +65,7 @@ export function parseChatEvent(value: unknown): ChatStreamEvent {
     case 'done': valid = true; break
     case 'status': case 'error': valid = text(value.label); break
     case 'text_delta': valid = text(value.text); break
-    case 'map_action': valid = isMapAction(value.action) && text(value.label); break
+    case 'map_action': valid = isMapAction(value.action) && text(value.label) && (value.id === undefined || text(value.id, 80)); break
     case 'tool_start': case 'tool_result': valid = text(value.id) && text(value.tool) && text(value.label) && (value.source === undefined || text(value.source)); break
     case 'web_search_start': valid = text(value.id) && text(value.label); break
     case 'web_search_result': valid = text(value.id) && text(value.label) && numeric(value.source_count, 0, 10000) && Array.isArray(value.sources) && value.sources.length <= 20 && value.sources.every(s => record(s) && safeWebURL(s.url) && text(s.title)); break

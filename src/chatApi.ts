@@ -23,6 +23,11 @@ export async function clearConversation(id: string) {
   const response = await fetch(`/api/chat/session/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (response.status !== 404) await checked(response)
 }
+export async function acknowledgeMapAction(conversation: string, action: string, status: 'accepted' | 'failed', signal: AbortSignal) {
+  await checked(await fetch(`/api/chat/session/${encodeURIComponent(conversation)}/actions/${encodeURIComponent(action)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }), signal,
+  }))
+}
 export async function streamChat(request: ChatRequest, signal: AbortSignal, onEvent: (event: ChatStreamEvent) => void) {
   const response = await checked(await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal }))
   if (!response.body) throw new Error('Streaming is unavailable in this browser.')

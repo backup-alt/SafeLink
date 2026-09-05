@@ -266,6 +266,20 @@ class ChatAPITests(TestCase):
         self.assertEqual(200, self.client.delete('/api/chat/session/' + key).status_code)
         self.assertEqual(404, self.client.post('/api/chat', json=payload).status_code)
 
+    def test_action_receipt_is_owned_and_single_use(self):
+        key = self.session()
+        pending = Mock()
+        pending.done.return_value = False
+        self.router.store.sessions[key].pending_actions['action1'] = pending
+        other = TestClient(self.app)
+        self.session(other)
+        path = '/api/chat/session/' + key + '/actions/action1'
+        self.assertEqual(404, other.post(path, json={'status': 'accepted'}).status_code)
+        self.assertEqual(200, self.client.post(path, json={'status': 'accepted'}).status_code)
+        pending.set_result.assert_called_once_with('accepted')
+        pending.done.return_value = True
+        self.assertEqual(404, self.client.post(path, json={'status': 'accepted'}).status_code)
+
     def test_csrf_and_rate_limits(self):
         self.assertEqual(403, self.client.post('/api/chat/session', headers={'Origin': 'https://evil.example'}).status_code)
         key = self.session()

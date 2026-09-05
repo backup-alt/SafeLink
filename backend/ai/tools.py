@@ -5,11 +5,13 @@ import json
 import logging
 from pathlib import Path
 import unicodedata
-from .schemas import EmptyArgs, LocationArgs, MapArgs, MarineArgs, PFZArgs, Point
+from .schemas import EmptyArgs, LocationArgs, MapArgs, MarineArgs, PFZArgs, Point, PlanArgs, WeatherArgs
 from ..pfz_nearest import nearest_pfz
 
 LOG = logging.getLogger(__name__)
 TOOL_MODELS = {
+    'get_weather_forecast': (WeatherArgs, 'Checking weather forecast', 'Open-Meteo'),
+    'execute_plan': (PlanArgs, 'Running parallel marine checks', 'SafeLink specialists'),
     'get_marine_conditions': (MarineArgs, 'Reading marine conditions', 'Copernicus Marine'),
     'get_nearest_pfz': (Point, 'Finding nearest PFZ', 'INCOIS'),
     'get_pfz_details': (PFZArgs, 'Checking INCOIS PFZ data', 'INCOIS'),
@@ -18,6 +20,8 @@ TOOL_MODELS = {
     'update_map': (MapArgs, 'Updating map', None),
 }
 DESCRIPTIONS = {
+    'get_weather_forecast': 'Get hourly model weather at a coordinate and explicit timezone-aware start/end times, up to 48 hours per call within the next 7 days. Wind/gusts in m/s, precipitation mm, pressure hPa, visibility m. Not official warnings or lightning detections; not tide data. Reports actual returned grid position and missing values.',
+    'execute_plan': 'Run 1–4 independent read-only specialist tasks concurrently. Each task has a unique id, tool and arguments_json matching that tool schema. No map actions or nested plans. For dependent work (e.g. conditions at a PFZ), get the PFZ first, then use its returned coordinates in a later call. Returns each result with evidence and gaps; missing safety inputs never mean safe.',
     'get_marine_conditions': 'Read native-grid values for only the requested layers at a coordinate and ISO time (null means now). Returns actual sample times, units, unavailable layers. CHL is an observation, not a forecast.',
     'get_nearest_pfz': 'Compute nearest point on all cached official INCOIS PFZ lines from a coordinate. Returns distance, initial true bearing and PFZ ID; not a safe route.',
     'get_pfz_details': 'Get one verified INCOIS advisory by its PFZ Sno. No guessed coordinates.',
@@ -78,6 +82,12 @@ class MarineTools:
             return ToolResult({'error': 'Unsupported tool'}, success=False)
         try:
             args = TOOL_MODELS[name][0].model_validate_json(arguments)
+            if name == 'get_weather_forecast':
+                from .weather import forecast
+                return ToolResult(forecast(args))
+            if name == 'execute_plan':
+                from .planning import execute_plan
+                return execute_plan(self, args)
             if name == 'get_nearest_pfz':
                 snapshot = self.pfz.get()
                 result = nearest_pfz(snapshot['data'], args.longitude, args.latitude)
