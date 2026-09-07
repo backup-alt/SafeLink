@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, prefetchField } from './api'
 import OceanMap from './OceanMap'
+import SafetyIndicator from './SafetyIndicator'
 import ChatPanel from './ChatPanel'
 import { isMapAction } from './chatTypes'
 import type { MapAction, MapContext } from './chatTypes'
@@ -380,6 +381,11 @@ export default function App() {
   const layer = catalog?.layers.find((item) => item.id === selectedLayer) ?? null
   const times = layer?.times ?? []
   const selectedTime = times[timeIndex]
+  const safetyPoint: [number, number] | null = inspection
+    ? [inspection.lng, inspection.lat]
+    : clickedLocation
+      ? [clickedLocation.longitude, clickedLocation.latitude]
+      : null
 
   useEffect(() => {
     setConditions({})
@@ -517,6 +523,7 @@ export default function App() {
         onViewChange={updateMapView}
         mapCommand={mapCommand}
       />
+      <SafetyIndicator point={safetyPoint} times={times} />
 
       <header className="topbar glass">
         <button className="menu-button" type="button" aria-label="Menu"><Menu size={22} /></button>
