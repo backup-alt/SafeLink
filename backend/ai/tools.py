@@ -21,7 +21,7 @@ TOOL_MODELS = {
 }
 DESCRIPTIONS = {
     'get_weather_forecast': 'Get hourly model weather at a coordinate and explicit timezone-aware start/end times, up to 48 hours per call within the next 7 days. Wind/gusts in m/s, precipitation mm, pressure hPa, visibility m. Not official warnings or lightning detections; not tide data. Reports actual returned grid position and missing values.',
-    'execute_plan': 'Run 1–4 independent read-only specialist tasks concurrently. Each task has a unique id, tool and arguments_json matching that tool schema. No map actions or nested plans. For dependent work (e.g. conditions at a PFZ), get the PFZ first, then use its returned coordinates in a later call. Returns each result with evidence and gaps; missing safety inputs never mean safe.',
+    'execute_plan': 'Run 1–4 read-only specialist tasks with a 20-second overall deadline and at most 4 active workers. Each task has a unique id, tool, arguments_json and depends_on list (empty for independent work). Dependencies must finish successfully or downstream checks are skipped. No map actions or nested plans. Dependencies enforce order only: if arguments need a prior result, get it first and construct another call with those coordinates. Returns evidence, timeouts and gaps; missing safety inputs never mean safe.',
     'get_marine_conditions': 'Read native-grid values for only the requested layers at a coordinate and ISO time (null means now). Returns actual sample times, units, unavailable layers. CHL is an observation, not a forecast.',
     'get_nearest_pfz': 'Compute nearest point on all cached official INCOIS PFZ lines from a coordinate. Returns distance, initial true bearing and PFZ ID; not a safe route.',
     'get_pfz_details': 'Get one verified INCOIS advisory by its PFZ Sno. No guessed coordinates.',
@@ -32,9 +32,27 @@ DESCRIPTIONS = {
 
 
 def definitions():
-    return [{'type': 'function', 'name': name, 'description': DESCRIPTIONS[name],
-             'parameters': model.model_json_schema(), 'strict': True}
-            for name, (model, _, _) in TOOL_MODELS.items()]
+    result = []
+    for name, (model, _, _) in TOOL_MODELS.items():
+        schema = model.model_json_schema()
+        if name == 'execute_plan':
+            # Provider strict schemas require every object property. The backend
+            # default still accepts plans made by older clients without this field.
+            task_schema = schema['$defs']['PlannedTask']
+            task_schema['required'] = list(task_schema['properties'])
+        result.append({'type': 'function', 'name': name, 'description': DESCRIPTIONS[name],
+                       'parameters': schema, 'strict': True})
+    return result
+
+
+def execution_cost(name, arguments):
+    """Count planned children against the same per-reply tool budget."""
+    if name != 'execute_plan':
+        return 1
+    try:
+        return 1 + len(PlanArgs.model_validate_json(arguments).tasks)
+    except ValueError:
+        return 1
 
 
 def normalize(name):

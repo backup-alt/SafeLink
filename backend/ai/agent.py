@@ -7,7 +7,8 @@ from openai import APIError, APITimeoutError, RateLimitError
 from .openai_client import AIConfig, create_client
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
-from .tools import TOOL_MODELS, definitions
+from .sources import tool_sources
+from .tools import TOOL_MODELS, definitions, execution_cost
 
 LOG = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class Agent:
                     inputs = []
                     previous = completed.id
                     for call in calls:
-                        tool_count += 1
+                        tool_count += execution_cost(call.name, call.arguments)
                         if tool_count > 12:
                             raise RuntimeError('Tool limit reached')
                         spec = TOOL_MODELS.get(call.name)
@@ -149,6 +150,9 @@ class Agent:
                         result = await asyncio.to_thread(self.tools.run, call.name, call.arguments)
                         yield event('tool_result', id=call.call_id, tool=call.name if spec else 'unsupported',
                                     label=label + (' — complete' if result.success else ' — unavailable'), success=result.success, source=source)
+                        references = tool_sources(call.name, result)
+                        if references:
+                            yield event('sources', sources=references)
                         for action in result.actions:
                             yield event('map_action', action=action, label='Updating map')
                         inputs.append({'type': 'function_call_output', 'call_id': call.call_id,

@@ -240,6 +240,37 @@ class ChatAPITests(TestCase):
             self.assertFalse(self.client.get('/api/chat/health').json()['configured'])
             self.assertEqual(503, self.client.post('/api/chat', json={'conversation_id': key, 'message': 'Hello'}).status_code)
 
+    def test_history_reopen_isolation_deletion_and_no_cache(self):
+        self.assertEqual([], self.client.get('/api/chat/sessions').json()['conversations'])
+        key = self.session()
+        self.router.agent.client_factory = lambda: FakeClient([[text('Hello again'), complete()]])
+        self.client.post('/api/chat', json={'conversation_id': key, 'message': 'My marine question'})
+        listing = self.client.get('/api/chat/sessions')
+        self.assertEqual('no-store', listing.headers['cache-control'])
+        self.assertEqual('My marine question', listing.json()['conversations'][0]['title'])
+        response = self.client.get(f'/api/chat/session/{key}/history')
+        self.assertEqual('no-store', response.headers['cache-control'])
+        messages = response.json()['messages']
+        self.assertEqual(['My marine question', 'Hello again'], [m['content'] for m in messages])
+        self.assertTrue(messages[-1]['complete'])
+        other = TestClient(self.app)
+        self.session(other)
+        self.assertNotIn(key, [c['conversation_id'] for c in other.get('/api/chat/sessions').json()['conversations']])
+        self.assertEqual(404, other.get(f'/api/chat/session/{key}/history').status_code)
+        self.assertEqual(403, self.client.get('/api/chat/sessions', headers={'origin': 'https://evil.example'}).status_code)
+        self.client.delete('/api/chat/session/' + key)
+        self.assertEqual([], self.client.get('/api/chat/sessions').json()['conversations'])
+
+    def test_history_busy_and_expired(self):
+        key = self.session()
+        session = self.router.store.sessions[key]
+        session.busy = True
+        self.assertEqual(409, self.client.get(f'/api/chat/session/{key}/history').status_code)
+        session.busy = False
+        session.touched -= 7201
+        self.assertEqual([], self.client.get('/api/chat/sessions').json()['conversations'])
+        self.assertEqual(404, self.client.get(f'/api/chat/session/{key}/history').status_code)
+
     def test_stream_and_cookie_security(self):
         response = self.client.post('/api/chat/session')
         self.assertIn('HttpOnly', response.headers['set-cookie'])

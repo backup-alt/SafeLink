@@ -7,7 +7,7 @@ from uuid import uuid4
 from .agent import LOG
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
-from .tools import TOOL_MODELS, definitions
+from .tools import TOOL_MODELS, definitions, execution_cost
 
 
 def unsupported_dates(answer, source_payloads):
@@ -69,7 +69,7 @@ async def stream_groq(agent, request, session, config):
                     raise ValueError('Incomplete response')
                 messages.append({'role': 'assistant', 'content': answer or None, 'tool_calls': list(calls.values())})
                 for call in calls.values():
-                    count += 1
+                    count += execution_cost(call['function']['name'], call['function']['arguments'])
                     if count > 12:
                         raise ValueError('Tool limit')
                     name, arguments = call['function']['name'], call['function']['arguments']
@@ -80,6 +80,10 @@ async def stream_groq(agent, request, session, config):
                     source_payloads.append(result.data)
                     yield event('tool_result', id=call['id'], tool=name if spec else 'unsupported', label=label,
                                 success=result.success, source=source)
+                    from .sources import tool_sources
+                    references = tool_sources(name, result)
+                    if references:
+                        yield event('sources', sources=references)
                     receipts = []
                     for action in result.actions:
                         action_id = str(uuid4())
