@@ -20,6 +20,7 @@ COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
 COPY --from=frontend /app/dist ./dist
+COPY public ./public
 
 RUN mkdir -p /data
 EXPOSE 8000

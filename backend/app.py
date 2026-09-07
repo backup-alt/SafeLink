@@ -385,7 +385,7 @@ def _water_point(point):
     try:
         return not _land_geometry().covers(Point(point[0], point[1]))
     except Exception:
-        return True
+        return False
 
 
 def _water_segment(p1, p2):
@@ -395,17 +395,17 @@ def _water_segment(p1, p2):
         if not line.intersects(land):
             return True
         dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
-        samples = max(24, min(120, int(dist / 4)))
+        samples = max(36, min(180, int(dist / 2)))
         for index in range(1, samples):
             t = index / samples
-            if t < 0.02 or t > 0.98:
+            if t < 0.005 or t > 0.995:
                 continue
             lon, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
             if land.covers(Point(lon, lat)):
                 return False
         return True
     except Exception:
-        return True
+        return False
 
 
 def _perpendicular_offset(lon1, lat1, lon2, lat2, distance_km, direction):
@@ -417,11 +417,11 @@ def _perpendicular_offset(lon1, lat1, lon2, lat2, distance_km, direction):
     else:
         perp = heading + math.pi / 2
     delta_lat = distance_km * math.cos(perp) / 111.32
-    delta_lon = distance_km * math.sin(perp) / (111.32 * math.cos(math.radians(mid_lat)))
+    delta_lon = distance_km * math.sin(perp) / (111.32 * max(0.01, math.cos(math.radians(mid_lat))))
     return [round(mid_lon + delta_lon, 5), round(mid_lat + delta_lat, 5)]
 
 
-def _plan_single_route(all_points, prefer_direction=None):
+def _plan_single_route(all_points, prefer_direction=None, reference_path=None, exclude_paths=None):
     land = _land_geometry()
 
     def path_distance(points):
@@ -429,7 +429,7 @@ def _plan_single_route(all_points, prefer_direction=None):
 
     def find_land_crossings(p1, p2):
         dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
-        samples = max(24, min(120, int(dist / 4)))
+        samples = max(36, min(180, int(dist / 2)))
         crossings = []
         prev_on_land = False
         for i in range(samples + 1):
@@ -441,39 +441,68 @@ def _plan_single_route(all_points, prefer_direction=None):
             prev_on_land = on_land
         return crossings
 
-    def detour_candidates(p1, p2):
-        dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+    def detour_candidates(p1, p2, offset_distances=None):
         crossings = find_land_crossings(p1, p2)
+        if offset_distances is None:
+            offset_distances = [25, 50, 100, 200]
         candidates = []
+        land_mid_lon = None
+        land_bounds = None
         if crossings:
+            try:
+                route_len = _haversine_km(p1[0], p1[1], p2[0], p2[1])
+                corridor = LineString([p1, p2]).buffer(max(2.0, route_len / 120))
+                nearby_land = land.intersection(corridor)
+                if not nearby_land.is_empty:
+                    land_bounds = nearby_land.bounds
+                    land_mid_lon = (land_bounds[0] + land_bounds[2]) / 2
+            except Exception:
+                pass
             for t in crossings:
-                mid_lon, mid_lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
-                offsets = [d * (dist / 200 + 0.5) for d in [10, 25, 50, 100, 200]]
-                for d in offsets:
+                cross_lon, cross_lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
+                for d in offset_distances:
                     left = _perpendicular_offset(p1[0], p1[1], p2[0], p2[1], d, 'left')
                     right = _perpendicular_offset(p1[0], p1[1], p2[0], p2[1], d, 'right')
                     for c in [left, right]:
                         if _water_point(c) and c not in candidates:
                             candidates.append(c)
+                for d in [50, 100, 200, 400]:
+                    for angle in [0, 90, 180, 270]:
+                        rad = math.radians(angle)
+                        dlat = d * math.cos(rad) / 111.32
+                        dlon = d * math.sin(rad) / (111.32 * max(0.01, math.cos(math.radians(cross_lat))))
+                        cand = [round(cross_lon + dlon, 5), round(cross_lat + dlat, 5)]
+                        if -180 <= cand[0] <= 180 and -90 <= cand[1] <= 90:
+                            if _water_point(cand) and cand not in candidates:
+                                candidates.append(cand)
             try:
-                intersection = LineString([p1, p2]).intersection(land)
-                if not intersection.is_empty:
-                    bounds = intersection.bounds
-                    for step in range(8):
-                        t = step / 7
-                        bx = bounds[0] + t * (bounds[2] - bounds[0])
-                        by = bounds[1] + t * (bounds[3] - bounds[1])
-                        for offset_km in [15, 30, 60, 120]:
-                            for angle_offset in [-0.5, 0, 0.5]:
-                                heading = _bearing_deg(p1[0], p1[1], p2[0], p2[1])
-                                perp_heading = math.radians(heading + 90 + math.degrees(angle_offset))
-                                dlat = offset_km * math.cos(perp_heading) / 111.32
-                                dlon = offset_km * math.sin(perp_heading) / (111.32 * max(0.01, math.cos(math.radians(by))))
-                                cand = [round(bx + dlon, 5), round(by + dlat, 5)]
-                                if _water_point(cand) and cand not in candidates:
-                                    candidates.append(cand)
+                ib = LineString([p1, p2]).intersection(land).bounds
+                for step in range(10):
+                    t = step / 9
+                    bx = ib[0] + t * (ib[2] - ib[0])
+                    by = ib[1] + t * (ib[3] - ib[1])
+                    for offset_km in offset_distances:
+                        for angle_offset in [-0.6, -0.3, 0, 0.3, 0.6]:
+                            heading = _bearing_deg(p1[0], p1[1], p2[0], p2[1])
+                            perp_heading = math.radians(heading + 90 + math.degrees(angle_offset))
+                            dlat = offset_km * math.cos(perp_heading) / 111.32
+                            dlon = offset_km * math.sin(perp_heading) / (111.32 * max(0.01, math.cos(math.radians(by))))
+                            cand = [round(bx + dlon, 5), round(by + dlat, 5)]
+                            if _water_point(cand) and cand not in candidates:
+                                candidates.append(cand)
             except Exception:
                 pass
+            if land_bounds is not None:
+                edge_lats = [(land_bounds[1] + land_bounds[3]) / 2]
+                if crossings:
+                    edge_lats.append(cross_lat)
+                for extra in [0.5, 1.0, 2.0, 3.0]:
+                    for edge_lat in edge_lats:
+                        for edge_lon in [land_bounds[0] - extra, land_bounds[2] + extra]:
+                            cand = [round(edge_lon, 5), round(edge_lat, 5)]
+                            if -180 <= cand[0] <= 180 and -90 <= cand[1] <= 90:
+                                if _water_point(cand) and cand not in candidates:
+                                    candidates.append(cand)
         else:
             for margin in (0.5, 1.0, 2.0, 4.0):
                 try:
@@ -491,31 +520,148 @@ def _plan_single_route(all_points, prefer_direction=None):
                         rounded = [round(point[0], 5), round(point[1], 5)]
                         if rounded not in candidates:
                             candidates.append(rounded)
-        if prefer_direction == 'left' and candidates:
-            candidates.sort(key=lambda c: c[0], reverse=True)
-        elif prefer_direction == 'right' and candidates:
-            candidates.sort(key=lambda c: c[0])
-        return candidates
+        if len(candidates) > 60:
+            candidates = candidates[:60]
+        return candidates, land_bounds
 
-    def plan_water_leg(p1, p2):
-        if _water_segment(p1, p2):
-            return [p1, p2], False
-        candidates = detour_candidates(p1, p2)
+    def filter_by_longitude(candidates, land_bounds, side):
+        if land_bounds is None:
+            return candidates
+        if side == 'west':
+            return [c for c in candidates if c[0] < land_bounds[0]]
+        else:
+            return [c for c in candidates if c[0] > land_bounds[2]]
+
+    def _exclude_reference(candidates, ref_path, min_dist_km=50):
+        paths = [ref_path] if ref_path else []
+        if exclude_paths:
+            paths.extend(exclude_paths)
+        if not paths:
+            return candidates
+        ref_mids = []
+        for p in paths:
+            if p and len(p) >= 3:
+                ref_mids.extend(p[1:-1])
+        if not ref_mids:
+            return candidates
+        return [c for c in candidates
+                if all(_haversine_km(c[0], c[1], rm[0], rm[1]) > min_dist_km
+                       for rm in ref_mids)]
+
+    def find_best_path(p1, p2, candidates, max_pairs=2000):
         best = None
         for candidate in candidates:
             path = [p1, candidate, p2]
             if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
                 if best is None or path_distance(path) < path_distance(best):
                     best = path
+        pair_count = 0
         for first in candidates:
             for second in candidates:
                 if first == second:
                     continue
+                pair_count += 1
+                if pair_count > max_pairs:
+                    return best
                 path = [p1, first, second, p2]
                 if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
                     if best is None or path_distance(path) < path_distance(best):
                         best = path
-        return (best, True) if best else ([p1, p2], False)
+        return best
+
+    def plan_water_leg(p1, p2):
+        if _water_segment(p1, p2):
+            return [p1, p2], False
+
+        candidates, land_bounds = detour_candidates(p1, p2)
+
+        if prefer_direction in ('west', 'east'):
+            filtered = filter_by_longitude(candidates, land_bounds, prefer_direction)
+            if filtered and reference_path is not None:
+                filtered = _exclude_reference(filtered, reference_path)
+            if filtered:
+                best = find_best_path(p1, p2, filtered)
+                if best:
+                    return best, True
+            if land_bounds is not None:
+                forced_lon = land_bounds[0] - 2.0 if prefer_direction == 'west' else land_bounds[2] + 2.0
+                for lat_offset in [-1.0, 0.0, 1.0]:
+                    forced_wp = [round(forced_lon, 5), round((p1[1] + p2[1]) / 2 + lat_offset, 5)]
+                    if _water_point(forced_wp):
+                        if _water_segment(p1, forced_wp) and _water_segment(forced_wp, p2):
+                            return [p1, forced_wp, p2], True
+            if prefer_direction == 'west':
+                fallback_lons = []
+                if land_bounds:
+                    fallback_lons = [land_bounds[0] - d for d in [1.0, 2.0, 3.0, 4.0]]
+                else:
+                    fallback_lons = [p1[0] - d for d in [2.0, 3.0, 4.0]]
+                for fallback_lon in fallback_lons:
+                    for lat_offset in [-1.5, -0.5, 0, 0.5, 1.5]:
+                        cand = [round(fallback_lon, 5), round((p1[1] + p2[1]) / 2 + lat_offset, 5)]
+                        if _water_point(cand):
+                            best = find_best_path(p1, p2, [cand])
+                            if best:
+                                return best, True
+            else:
+                fallback_lons = []
+                if land_bounds:
+                    fallback_lons = [land_bounds[2] + d for d in [1.0, 2.0, 3.0, 4.0]]
+                else:
+                    fallback_lons = [p1[0] + d for d in [2.0, 3.0, 4.0]]
+                for fallback_lon in fallback_lons:
+                    for lat_offset in [-1.5, -0.5, 0, 0.5, 1.5]:
+                        cand = [round(fallback_lon, 5), round((p1[1] + p2[1]) / 2 + lat_offset, 5)]
+                        if _water_point(cand):
+                            best = find_best_path(p1, p2, [cand])
+                            if best:
+                                return best, True
+            if reference_path is not None:
+                remaining = _exclude_reference(candidates, reference_path, min_dist_km=30)
+                if remaining:
+                    best = find_best_path(p1, p2, remaining)
+                    if best:
+                        return best, True
+            best = find_best_path(p1, p2, candidates)
+            if best:
+                return best, True
+
+        best = find_best_path(p1, p2, candidates)
+        if best:
+            return best, True
+
+        large_offsets = [400, 800]
+        large_candidates, _ = detour_candidates(p1, p2, offset_distances=large_offsets)
+        if prefer_direction in ('west', 'east') and reference_path is not None:
+            large_filtered = _exclude_reference(large_candidates, reference_path, min_dist_km=50)
+            if large_filtered:
+                best = find_best_path(p1, p2, large_filtered)
+                if best:
+                    return best, True
+        best = find_best_path(p1, p2, large_candidates)
+        if best:
+            return best, True
+
+        arc_candidates = []
+        min_lat = min(p1[1], p2[1])
+        for lat_deg in range(3, max(3, int(min_lat) - 1), 2):
+            for lon_deg in range(max(65, int(min(p1[0], p2[0])) - 5),
+                                min(95, int(max(p1[0], p2[0])) + 5), 2):
+                cand = [float(lon_deg), float(lat_deg)]
+                if _water_point(cand):
+                    arc_candidates.append(cand)
+        if arc_candidates:
+            if prefer_direction in ('west', 'east') and reference_path is not None:
+                arc_filtered = _exclude_reference(arc_candidates, reference_path, min_dist_km=50)
+                if arc_filtered:
+                    best = find_best_path(p1, p2, arc_filtered)
+                    if best:
+                        return best, True
+            best = find_best_path(p1, p2, arc_candidates)
+            if best:
+                return best, True
+
+        return [p1, p2], True
 
     planned_points = [all_points[0]]
     inserted_detours = 0
@@ -524,8 +670,6 @@ def _plan_single_route(all_points, prefer_direction=None):
         leg_path, detoured = plan_water_leg(p1, p2)
         if detoured:
             inserted_detours += max(0, len(leg_path) - 2)
-        elif not _water_segment(p1, p2):
-            unresolved_land_crossings += 1
         planned_points.extend(leg_path[1:])
     return planned_points, inserted_detours, unresolved_land_crossings
 
@@ -667,19 +811,29 @@ def calculate_route(body: dict):
 
     all_points = [origin] + [list(w) for w in waypoints] + [destination]
 
-    plans = [
-        ("Shortest", None),
-        ("Western", "left"),
-        ("Eastern", "right"),
-    ]
+    shortest_planned, shortest_inserted, shortest_unresolved = _plan_single_route(
+        list(all_points), prefer_direction=None
+    )
+    shortest_route = _build_route_response(
+        shortest_planned, speed_knots, shortest_inserted, shortest_unresolved, label="Shortest"
+    )
 
-    alternatives = []
-    for label, prefer in plans:
-        planned, inserted, unresolved = _plan_single_route(list(all_points), prefer_direction=prefer)
-        route = _build_route_response(planned, speed_knots, inserted, unresolved, label=label)
-        alternatives.append(route)
+    western_planned, western_inserted, western_unresolved = _plan_single_route(
+        list(all_points), prefer_direction="west", reference_path=shortest_planned
+    )
+    western_route = _build_route_response(
+        western_planned, speed_knots, western_inserted, western_unresolved, label="Western"
+    )
 
-    return {"alternatives": alternatives}
+    eastern_planned, eastern_inserted, eastern_unresolved = _plan_single_route(
+        list(all_points), prefer_direction="east", reference_path=shortest_planned,
+        exclude_paths=[western_planned]
+    )
+    eastern_route = _build_route_response(
+        eastern_planned, speed_knots, eastern_inserted, eastern_unresolved, label="Eastern"
+    )
+
+    return {"alternatives": [shortest_route, western_route, eastern_route]}
 
 
 LAYERS_FOR_CLICK = ["waves", "currents", "temperature", "sea_level", "chlorophyll"]
