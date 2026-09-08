@@ -81,7 +81,7 @@ def health():
             'note': 'Configuration check only; no paid API request or model-access verification.'}
 
 
-def create_client():
+def create_client(rotate=False):
     # Never forward arbitrary endpoint overrides or browser-supplied credentials.
     groq = AIConfig.read().provider == 'groq'
     if groq:

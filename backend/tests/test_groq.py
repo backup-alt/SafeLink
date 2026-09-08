@@ -60,6 +60,44 @@ class ConfigTests(TestCase):
 
 
 class GroqTests(IsolatedAsyncioTestCase):
+    async def test_incomplete_response_retries_on_next_key(self):
+        incomplete = FakeClient([[chunk(content='Partial'), chunk(finish='length')]])
+        incomplete.chat = NS(completions=incomplete)
+        recovered = FakeClient([[chunk(content='Complete answer.'), chunk(finish='stop')]])
+        recovered.chat = NS(completions=recovered)
+        contexts = iter([incomplete, recovered])
+        session = Conversation('owner')
+        with patch.dict(os.environ, {'AI_PROVIDER': 'groq', 'GROQ_API_KEYS': '["one", "two"]'}, clear=True):
+            events = [x async for x in Agent(Mock(), lambda **kwargs: next(contexts)).stream(
+                request(), session, AIConfig.read()
+            )]
+        self.assertEqual('done', events[-1]['type'])
+        self.assertEqual('Complete answer.', next(x['text'] for x in events if x['type'] == 'text_delta'))
+        self.assertTrue(incomplete.streams[0].closed)
+
+    async def test_rate_limited_key_retries_on_next_key(self):
+        class FailingCompletions:
+            async def create(self, **kwargs):
+                error = RuntimeError('rate limited')
+                error.status_code = 429
+                raise error
+
+        class Context:
+            def __init__(self, completions):
+                self.chat = NS(completions=completions)
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+
+        good = FakeClient([[chunk(content='Recovered.'), chunk(finish='stop')]])
+        good.chat = NS(completions=good)
+        contexts = iter([Context(FailingCompletions()), good])
+        factory = lambda **kwargs: next(contexts)
+        session = Conversation('owner')
+        with patch.dict(os.environ, {'AI_PROVIDER': 'groq', 'GROQ_API_KEYS': '["one", "two"]'}, clear=True):
+            events = [x async for x in Agent(Mock(), factory).stream(request(), session, AIConfig.read())]
+        self.assertEqual('done', events[-1]['type'])
+        self.assertEqual('Recovered.', next(x['text'] for x in events if x['type'] == 'text_delta'))
+
     async def test_fragmented_tool_call_result_and_history(self):
         parts = [NS(index=0, id='call1', function=NS(name='update_map', arguments='{"action":')),
                  NS(index=0, id=None, function=NS(name=None, arguments='"test"}'))]

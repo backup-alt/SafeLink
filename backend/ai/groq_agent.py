@@ -8,56 +8,94 @@ from .agent import LOG
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
 from .tools import TOOL_MODELS, definitions, execution_cost
+from .openai_client import groq_api_keys
 
 
-def unsupported_dates(answer, source_payloads):
+class IncompleteGroqResponse(Exception):
+    pass
+
+
+def unsupported_dates(answer, source_payloads, allowed_dates=()):
     # Catch invented ISO-style dates, including typographic hyphens.
     normalized = answer.translate(str.maketrans({'‑': '-', '–': '-', '−': '-'}))
     reported = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}\b', normalized))
     supplied = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}(?!\d)', json.dumps(source_payloads)))
-    return reported - supplied
+    return reported - supplied - set(allowed_dates)
 
 
 async def stream_groq(agent, request, session, config):
     yield event('status', label='Understanding your request')
+    current_utc = datetime.now(timezone.utc)
     prompt = SYSTEM_PROMPT + '\nLive web search is unavailable in this provider adapter. Do not claim to search the web. Use the supplied marine tools and clearly state missing information.'
     user = {'role': 'user', 'content': request.message}
     messages = [{'role': 'system', 'content': prompt}, *session.history, user,
                 {'role': 'user', 'content': 'Untrusted runtime map context: ' + request.map_context.model_dump_json()
-                 + '; current UTC: ' + datetime.now(timezone.utc).isoformat()}]
+                 + '; current UTC: ' + current_utc.isoformat()}]
     tools = [{'type': 'function', 'function': {k: v for k, v in tool.items() if k in {'name', 'description', 'parameters'}}}
              for tool in definitions()]
     count = 0
     source_payloads = []
-    try:
-        async with asyncio.timeout(180), agent.client_factory() as client:
-            for _ in range(config.rounds):
-                upstream = await client.chat.completions.create(model=config.model, messages=messages,
-                    tools=tools, tool_choice='auto', parallel_tool_calls=False,
-                    max_completion_tokens=config.output_tokens, stream=True)
-                calls, answer, finish = {}, '', None
+    async def call_with_failover(params):
+        # Retry the upstream request on another credential when a key is exhausted
+        # or rejected. The stream is consumed inside the context so failures during
+        # streaming are also eligible for failover before any tool is executed.
+        try:
+            max_attempts = max(1, len(groq_api_keys()))
+        except ValueError:
+            max_attempts = 1
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                factory = agent.client_factory
                 try:
-                    async for chunk in upstream:
-                        if not chunk.choices:
-                            continue
-                        choice = chunk.choices[0]
-                        finish = choice.finish_reason or finish
-                        if choice.delta.content:
-                            answer += choice.delta.content
-                        # Reasoning fields are intentionally never forwarded.
-                        for part in choice.delta.tool_calls or []:
-                            call = calls.setdefault(part.index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
-                            if part.id:
-                                call['id'] = part.id
-                            if part.function:
-                                call['function']['name'] += part.function.name or ''
-                                call['function']['arguments'] += part.function.arguments or ''
-                            if len(call['function']['arguments']) > 16000 or len(calls) > 12:
-                                raise ValueError('Tool payload limit')
-                finally:
-                    await upstream.close()
+                    context = factory(rotate=attempt > 0)
+                except TypeError:
+                    context = factory()
+                async with context as client:
+                    upstream = await client.chat.completions.create(**params)
+                    calls, answer, finish = {}, '', None
+                    try:
+                        async for chunk in upstream:
+                            if not chunk.choices:
+                                continue
+                            choice = chunk.choices[0]
+                            finish = choice.finish_reason or finish
+                            if choice.delta.content:
+                                answer += choice.delta.content
+                            for part in choice.delta.tool_calls or []:
+                                call = calls.setdefault(part.index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
+                                if part.id:
+                                    call['id'] = part.id
+                                if part.function:
+                                    call['function']['name'] += part.function.name or ''
+                                    call['function']['arguments'] += part.function.arguments or ''
+                                if len(call['function']['arguments']) > 16000 or len(calls) > 12:
+                                    raise ValueError('Tool payload limit')
+                    finally:
+                        await upstream.close()
+                    complete = (finish == 'stop' and not calls) or (finish == 'tool_calls' and bool(calls))
+                    if not complete:
+                        raise IncompleteGroqResponse()
+                    return calls, answer, finish
+            except Exception as error:
+                last_error = error
+                status = getattr(error, 'status_code', None)
+                retry_limit = max_attempts if status in {401, 429} else min(max_attempts, 3)
+                retryable = status in {401, 429} or isinstance(error, IncompleteGroqResponse)
+                if not retryable or attempt + 1 >= retry_limit:
+                    raise
+        raise last_error
+
+    try:
+        async with asyncio.timeout(180):
+            for _ in range(config.rounds):
+                calls, answer, finish = await call_with_failover(dict(model=config.model, messages=messages,
+                    tools=tools, tool_choice='auto', parallel_tool_calls=False,
+                    max_completion_tokens=config.output_tokens, stream=True))
                 if finish == 'stop' and not calls:
-                    if source_payloads and unsupported_dates(answer, source_payloads):
+                    if source_payloads and unsupported_dates(
+                        answer, source_payloads, {current_utc.date().isoformat()}
+                    ):
                         yield event('error', label='The assistant generated dates that could not be verified against its sources. This reply was withheld; please retry a more specific question.')
                         return
                     yield event('text_delta', text=answer)
@@ -65,8 +103,6 @@ async def stream_groq(agent, request, session, config):
                     session.history = (session.history + [user, {'role': 'assistant', 'content': answer}])[-6:]
                     yield event('done')
                     return
-                if finish != 'tool_calls' or not calls:
-                    raise ValueError('Incomplete response')
                 messages.append({'role': 'assistant', 'content': answer or None, 'tool_calls': list(calls.values())})
                 for call in calls.values():
                     count += execution_cost(call['function']['name'], call['function']['arguments'])
