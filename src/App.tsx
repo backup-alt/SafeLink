@@ -821,6 +821,7 @@ export default function App() {
           zoom={mapZoom}
           onCenterChange={handleMapContextChange}
           onVesselSelect={setSelectedVessel}
+          selectedVessel={selectedVessel}
         />
       )}
   {mapView === 'ocean' && <SafetyIndicator point={safetyPoint} times={times} />}
