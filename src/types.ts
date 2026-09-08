@@ -17,6 +17,38 @@ export interface Vessel {
   source: string
 }
 
+export const VESSEL_TYPES: Record<string, string> = {
+  '30': 'HSC',
+  '40': 'HSC',
+  '50': 'SAR/Pilot',
+  '60': 'Passenger',
+  '70': 'Cargo',
+  '80': 'Tanker',
+  '90': 'Other',
+}
+
+export const VESSEL_TYPE_COLORS: Record<string, string> = {
+  '30': '#f59e0b',
+  '40': '#f59e0b',
+  '50': '#8b5cf6',
+  '60': '#3b82f6',
+  '70': '#10b981',
+  '80': '#ef4444',
+  '90': '#6b7280',
+}
+
+export const VESSEL_TYPE_DEFAULT_COLOR = '#5cf2ed'
+
+export const VESSEL_TYPE_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: '70', label: 'Cargo' },
+  { key: '80', label: 'Tanker' },
+  { key: '60', label: 'Passenger' },
+  { key: '30', label: 'HSC' },
+  { key: '50', label: 'SAR' },
+  { key: '90', label: 'Other' },
+] as const
+
 export interface NavRoute {
   label: string
   coordinates: [number, number][]

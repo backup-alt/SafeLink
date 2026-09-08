@@ -22,6 +22,7 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw, ImageOps
 from shapely.geometry import LineString, Point, shape
 from shapely.ops import unary_union
+from shapely.prepared import prep
 
 from . import environment  # Load local .env before constructing any services.
 from .data_service import DataRepository
@@ -185,8 +186,13 @@ def _condition_or_none(layer_id: str, latitude: float, longitude: float) -> dict
         return None
 
 
-@lru_cache(maxsize=1)
+_land_cache = None
+_prepared_land_cache = None
+
 def _land_geometry():
+    global _land_cache
+    if _land_cache is not None:
+        return _land_cache
     with (ROOT / "public" / "indian-ocean-land.geojson").open("r", encoding="utf-8") as file:
         collection = json.load(file)
     geometries = [
@@ -194,7 +200,17 @@ def _land_geometry():
         for feature in collection.get("features", [])
         if feature.get("geometry")
     ]
-    return unary_union(geometries)
+    _land_cache = unary_union(geometries)
+    return _land_cache
+
+
+def _prepared_land():
+    global _prepared_land_cache
+    if _prepared_land_cache is not None:
+        return _prepared_land_cache
+    land = _land_geometry()
+    _prepared_land_cache = prep(land.buffer(0.0005))
+    return _prepared_land_cache
 
 
 @asynccontextmanager
@@ -383,26 +399,47 @@ def _great_circle_interpolate(lon1, lat1, lon2, lat2, t):
 
 def _water_point(point):
     try:
-        return not _land_geometry().covers(Point(point[0], point[1]))
+        return not _prepared_land().contains(Point(point[0], point[1]))
     except Exception:
         return False
 
 
+_water_segment_cache = {}
+_land_bbox = None
+
 def _water_segment(p1, p2):
+    key = (p1[0], p1[1], p2[0], p2[1])
+    cached = _water_segment_cache.get(key)
+    if cached is not None:
+        return cached
     try:
-        land = _land_geometry()
+        pland = _prepared_land()
+        global _land_bbox
+        if _land_bbox is None:
+            _land_bbox = _land_geometry().bounds
+        lb = _land_bbox
+        seg_min_lon = min(p1[0], p2[0])
+        seg_max_lon = max(p1[0], p2[0])
+        seg_min_lat = min(p1[1], p2[1])
+        seg_max_lat = max(p1[1], p2[1])
+        if seg_max_lon < lb[0] or seg_min_lon > lb[2] or seg_max_lat < lb[1] or seg_min_lat > lb[3]:
+            _water_segment_cache[key] = True
+            return True
         line = LineString([p1, p2])
-        if not line.intersects(land):
+        if not pland.intersects(line):
+            _water_segment_cache[key] = True
             return True
         dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
-        samples = max(36, min(180, int(dist / 2)))
+        samples = max(20, min(60, int(dist / 5)))
         for index in range(1, samples):
             t = index / samples
             if t < 0.005 or t > 0.995:
                 continue
             lon, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
-            if land.covers(Point(lon, lat)):
+            if pland.contains(Point(lon, lat)):
+                _water_segment_cache[key] = False
                 return False
+        _water_segment_cache[key] = True
         return True
     except Exception:
         return False
@@ -422,7 +459,7 @@ def _perpendicular_offset(lon1, lat1, lon2, lat2, distance_km, direction):
 
 
 def _plan_single_route(all_points, prefer_direction=None, reference_path=None, exclude_paths=None):
-    land = _land_geometry()
+    pland = _prepared_land()
 
     def path_distance(points):
         return sum(_haversine_km(a[0], a[1], b[0], b[1]) for a, b in zip(points, points[1:]))
@@ -432,10 +469,11 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
         samples = max(36, min(180, int(dist / 2)))
         crossings = []
         prev_on_land = False
+        pland = _prepared_land()
         for i in range(samples + 1):
             t = i / samples
             lon, lat = _great_circle_interpolate(p1[0], p1[1], p2[0], p2[1], t)
-            on_land = land.covers(Point(lon, lat))
+            on_land = pland.contains(Point(lon, lat))
             if on_land and not prev_on_land:
                 crossings.append(t)
             prev_on_land = on_land
@@ -444,7 +482,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
     def detour_candidates(p1, p2, offset_distances=None):
         crossings = find_land_crossings(p1, p2)
         if offset_distances is None:
-            offset_distances = [25, 50, 100, 200]
+            offset_distances = [25, 50, 100]
         candidates = []
         land_mid_lon = None
         land_bounds = None
@@ -452,7 +490,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
             try:
                 route_len = _haversine_km(p1[0], p1[1], p2[0], p2[1])
                 corridor = LineString([p1, p2]).buffer(max(2.0, route_len / 120))
-                nearby_land = land.intersection(corridor)
+                nearby_land = _land_geometry().intersection(corridor)
                 if not nearby_land.is_empty:
                     land_bounds = nearby_land.bounds
                     land_mid_lon = (land_bounds[0] + land_bounds[2]) / 2
@@ -466,7 +504,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                     for c in [left, right]:
                         if _water_point(c) and c not in candidates:
                             candidates.append(c)
-                for d in [50, 100, 200, 400]:
+                for d in [50, 100, 200]:
                     for angle in [0, 90, 180, 270]:
                         rad = math.radians(angle)
                         dlat = d * math.cos(rad) / 111.32
@@ -476,13 +514,13 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                             if _water_point(cand) and cand not in candidates:
                                 candidates.append(cand)
             try:
-                ib = LineString([p1, p2]).intersection(land).bounds
-                for step in range(10):
-                    t = step / 9
+                ib = LineString([p1, p2]).intersection(_land_geometry()).bounds
+                for step in range(6):
+                    t = step / 5
                     bx = ib[0] + t * (ib[2] - ib[0])
                     by = ib[1] + t * (ib[3] - ib[1])
                     for offset_km in offset_distances:
-                        for angle_offset in [-0.6, -0.3, 0, 0.3, 0.6]:
+                        for angle_offset in [-0.3, 0, 0.3]:
                             heading = _bearing_deg(p1[0], p1[1], p2[0], p2[1])
                             perp_heading = math.radians(heading + 90 + math.degrees(angle_offset))
                             dlat = offset_km * math.cos(perp_heading) / 111.32
@@ -496,7 +534,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                 edge_lats = [(land_bounds[1] + land_bounds[3]) / 2]
                 if crossings:
                     edge_lats.append(cross_lat)
-                for extra in [0.5, 1.0, 2.0, 3.0]:
+                for extra in [0.5, 1.0, 2.0]:
                     for edge_lat in edge_lats:
                         for edge_lon in [land_bounds[0] - extra, land_bounds[2] + extra]:
                             cand = [round(edge_lon, 5), round(edge_lat, 5)]
@@ -504,7 +542,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                                 if _water_point(cand) and cand not in candidates:
                                     candidates.append(cand)
         else:
-            for margin in (0.5, 1.0, 2.0, 4.0):
+            for margin in (0.5, 1.0, 2.0):
                 try:
                     bounds = LineString([p1, p2]).bounds
                 except Exception:
@@ -520,8 +558,8 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                         rounded = [round(point[0], 5), round(point[1], 5)]
                         if rounded not in candidates:
                             candidates.append(rounded)
-        if len(candidates) > 60:
-            candidates = candidates[:60]
+        if len(candidates) > 20:
+            candidates = candidates[:20]
         return candidates, land_bounds
 
     def filter_by_longitude(candidates, land_bounds, side):
@@ -548,13 +586,17 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                 if all(_haversine_km(c[0], c[1], rm[0], rm[1]) > min_dist_km
                        for rm in ref_mids)]
 
-    def find_best_path(p1, p2, candidates, max_pairs=2000):
+    def find_best_path(p1, p2, candidates, max_pairs=300):
         best = None
+        best_dist = float('inf')
         for candidate in candidates:
             path = [p1, candidate, p2]
+            d = path_distance(path)
+            if d >= best_dist:
+                continue
             if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
-                if best is None or path_distance(path) < path_distance(best):
-                    best = path
+                best = path
+                best_dist = d
         pair_count = 0
         for first in candidates:
             for second in candidates:
@@ -564,9 +606,12 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                 if pair_count > max_pairs:
                     return best
                 path = [p1, first, second, p2]
+                d = path_distance(path)
+                if d >= best_dist:
+                    continue
                 if all(_water_segment(a, b) for a, b in zip(path, path[1:])):
-                    if best is None or path_distance(path) < path_distance(best):
-                        best = path
+                    best = path
+                    best_dist = d
         return best
 
     def plan_water_leg(p1, p2):
@@ -593,11 +638,11 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
             if prefer_direction == 'west':
                 fallback_lons = []
                 if land_bounds:
-                    fallback_lons = [land_bounds[0] - d for d in [1.0, 2.0, 3.0, 4.0]]
+                    fallback_lons = [land_bounds[0] - d for d in [1.0, 2.0, 3.0]]
                 else:
-                    fallback_lons = [p1[0] - d for d in [2.0, 3.0, 4.0]]
+                    fallback_lons = [p1[0] - d for d in [2.0, 3.0]]
                 for fallback_lon in fallback_lons:
-                    for lat_offset in [-1.5, -0.5, 0, 0.5, 1.5]:
+                    for lat_offset in [-1.0, 0.0, 1.0]:
                         cand = [round(fallback_lon, 5), round((p1[1] + p2[1]) / 2 + lat_offset, 5)]
                         if _water_point(cand):
                             best = find_best_path(p1, p2, [cand])
@@ -606,11 +651,11 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
             else:
                 fallback_lons = []
                 if land_bounds:
-                    fallback_lons = [land_bounds[2] + d for d in [1.0, 2.0, 3.0, 4.0]]
+                    fallback_lons = [land_bounds[2] + d for d in [1.0, 2.0, 3.0]]
                 else:
-                    fallback_lons = [p1[0] + d for d in [2.0, 3.0, 4.0]]
+                    fallback_lons = [p1[0] + d for d in [2.0, 3.0]]
                 for fallback_lon in fallback_lons:
-                    for lat_offset in [-1.5, -0.5, 0, 0.5, 1.5]:
+                    for lat_offset in [-1.0, 0.0, 1.0]:
                         cand = [round(fallback_lon, 5), round((p1[1] + p2[1]) / 2 + lat_offset, 5)]
                         if _water_point(cand):
                             best = find_best_path(p1, p2, [cand])
@@ -644,9 +689,9 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
 
         arc_candidates = []
         min_lat = min(p1[1], p2[1])
-        for lat_deg in range(3, max(3, int(min_lat) - 1), 2):
-            for lon_deg in range(max(65, int(min(p1[0], p2[0])) - 5),
-                                min(95, int(max(p1[0], p2[0])) + 5), 2):
+        for lat_deg in range(3, max(3, int(min_lat) - 1), 3):
+            for lon_deg in range(max(65, int(min(p1[0], p2[0])) - 3),
+                                min(95, int(max(p1[0], p2[0])) + 3), 3):
                 cand = [float(lon_deg), float(lat_deg)]
                 if _water_point(cand):
                     arc_candidates.append(cand)

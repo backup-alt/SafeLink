@@ -223,6 +223,53 @@ button { color: inherit; }
 /* AIS Unavailable */
 .ais-unavailable { position: absolute; z-index: 8; top: 80px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 20px; background: rgba(255, 209, 102, .15); border: 1px solid rgba(255, 209, 102, .3); color: #ffd166; font-size: 11px; font-weight: 600; white-space: nowrap; }
 
+/* Vessel Finder — search bar */
+.vessel-search { position: absolute; z-index: 5; top: 12px; left: 12px; display: flex; align-items: center; gap: 0; background: rgba(15, 23, 27, .92); border: 1px solid rgba(155, 199, 206, .22); border-radius: 8px; backdrop-filter: blur(12px); overflow: hidden; }
+.vessel-search input { width: 200px; padding: 7px 10px; border: none; background: transparent; color: #c6d5d8; font: 12px Manrope, sans-serif; outline: none; }
+.vessel-search input::placeholder { color: #5a7177; }
+.vessel-search button { display: grid; place-items: center; padding: 7px 10px; border: none; background: transparent; color: #5cf2ed; cursor: pointer; }
+.vessel-search button:hover { color: #9cf5f3; }
+.vessel-search .search-clear { color: #6b7c82; font-size: 14px; padding: 0 6px; }
+
+/* Vessel Finder — type filter pills */
+.vessel-type-filter { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; padding: 3px; background: rgba(15, 23, 27, .92); border: 1px solid rgba(155, 199, 206, .22); border-radius: 8px; backdrop-filter: blur(12px); }
+.vessel-type-pill { padding: 4px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #6b7c82; font: 600 10px Manrope, sans-serif; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.vessel-type-pill:hover { color: #c6d5d8; }
+.vessel-type-pill.active { border-color: #53e6e2; background: rgba(76, 231, 226, .08); color: #edf6f7; }
+.vessel-type-pill .pill-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+/* Vessel Finder — count badge */
+.vessel-count { position: absolute; z-index: 5; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(15, 23, 27, .92); border: 1px solid rgba(155, 199, 206, .22); border-radius: 8px; backdrop-filter: blur(12px); color: #c6d5d8; font: 600 11px Manrope, sans-serif; }
+.vessel-count .count-num { color: #5cf2ed; }
+
+/* Vessel Finder — loading bar */
+.vessel-loading { position: absolute; z-index: 6; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #5cf2ed, transparent); animation: vessel-loading-slide 1s ease-in-out infinite; pointer-events: none; }
+@keyframes vessel-loading-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* Vessel Finder — hover tooltip */
+.vessel-tooltip { background: rgba(15, 23, 27, .95); border: 1px solid rgba(155, 199, 206, .3); border-radius: 6px; padding: 8px 10px; color: #c6d5d8; font: 12px Manrope, sans-serif; line-height: 1.4; min-width: 140px; max-width: 220px; }
+.vessel-tooltip .tt-name { font-weight: 700; color: #edf6f7; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vessel-tooltip .tt-row { display: flex; justify-content: space-between; gap: 8px; }
+.vessel-tooltip .tt-label { color: #6b7c82; font-size: 10px; }
+.vessel-tooltip .tt-value { font-size: 11px; font-weight: 600; }
+.vessel-tooltip .tt-type { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 700; background: rgba(92, 242, 237, .12); }
+
+/* MapLibre popup override (remove default.mapboxgl styling) */
+.maplibregl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; }
+.maplibregl-popup-tip { display: none !important; }
+
+/* Vessel Finder — LIVE AIS indicator */
+.vessel-live { position: absolute; z-index: 5; top: 12px; right: 130px; display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: rgba(15, 23, 27, .92); border: 1px solid rgba(16, 185, 129, .3); border-radius: 8px; backdrop-filter: blur(12px); color: #6ee7b7; font: 600 10px Manrope, sans-serif; animation: vessel-live-fadein .3s ease-out; }
+.vessel-live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, .6); animation: live-pulse 2s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes vessel-live-fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Vessel Finder — type legend */
+.vessel-legend { position: absolute; z-index: 4; bottom: 32px; right: 8px; padding: 8px 10px; background: rgba(15, 23, 27, .88); border: 1px solid rgba(155, 199, 206, .18); border-radius: 7px; backdrop-filter: blur(10px); pointer-events: none; }
+.vessel-legend .legend-title { color: #6b7c82; font: 700 8px Manrope, sans-serif; letter-spacing: .5px; margin-bottom: 5px; text-transform: uppercase; }
+.vessel-legend .legend-item { display: flex; align-items: center; gap: 5px; color: #8a9ea3; font: 10px Manrope, sans-serif; line-height: 1.6; }
+.vessel-legend .legend-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
 /* Map attribution labels */
 .nautical-attribution, .vessel-attribution { position: absolute; z-index: 2; bottom: 4px; left: 8px; color: rgba(160, 180, 185, .6); font-size: 9px; pointer-events: none; }
 
@@ -278,4 +325,10 @@ button { color: inherit; }
   .nav-history { left: 8px; right: 8px; top: auto; bottom: 34px; width: auto; max-height: 34vh; }
   .nav-metrics-grid, .nav-route-metrics, .nav-mode-grid { grid-template-columns: 1fr; }
   .nautical-info-card { left: 8px; bottom: 38vh; }
+  .vessel-search input { width: 150px; }
+  .vessel-type-filter { left: 8px; right: 8px; transform: none; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .vessel-type-pill { padding: 4px 8px; font-size: 9px; }
+  .vessel-count { top: 50px; right: 8px; }
+  .vessel-live { top: 50px; right: auto; left: 12px; }
+  .vessel-legend { display: none; }
 }
