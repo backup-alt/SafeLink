@@ -61,7 +61,7 @@ function vesselTypeLabel(code: string): string {
   return VESSEL_TYPES[code] || `Type ${code}`
 }
 
-function buildVesselFeatures(vessels: Vessel[]): GeoJSON.FeatureCollection {
+function buildVesselFeatures(vessels: Vessel[]): { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: [number, number] }; properties: Record<string, unknown> }> } {
   return {
     type: 'FeatureCollection',
     features: vessels.map((v) => ({
@@ -131,12 +131,12 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       }
     }
 
-    const combined: maplibregl.FilterSpecification =
+    const combined =
       filters.length === 0
-        ? ['boolean', true]
+        ? (['boolean', true] as maplibregl.FilterSpecification)
         : filters.length === 1
           ? filters[0]
-          : ['all', ...filters]
+          : (['all', ...filters] as maplibregl.FilterSpecification)
 
     for (const layerId of ['vessel-markers', 'vessel-marker-labels']) {
       try { map.setFilter(layerId, combined) } catch { /* layer may not exist yet */ }
@@ -151,7 +151,7 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
     applyFilters()
   }, [selectedVessel, applyFilters])
 
-  const addLayers = useCallback((map: MapLibreMap, data: GeoJSON.FeatureCollection) => {
+  const addLayers = useCallback((map: MapLibreMap, data: { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; geometry: { type: 'Point'; coordinates: [number, number] }; properties: Record<string, unknown> }> }) => {
     if (layersCreatedRef.current) return
 
     if (!map.hasImage('vessel-arrow')) {
@@ -275,17 +275,17 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       },
     })
 
-    map.on('click', 'vessel-clusters', (e) => {
+    map.on('click', 'vessel-clusters', async (e) => {
       const feats = map.queryRenderedFeatures(e.point, { layers: ['vessel-clusters'] })
       if (!feats?.length) return
       const clusterId = feats[0].properties?.cluster_id
       if (clusterId == null) return
       const src = map.getSource('vessels') as maplibregl.GeoJSONSource
-      src.getClusterExpansionZoom(clusterId, (err, zoom) => {
-        if (err || zoom == null) return
-        const geom = feats[0].geometry as GeoJSON.Point
-        map.easeTo({ center: geom.coordinates as [number, number], zoom: Math.min(zoom, 14) })
-      })
+      try {
+        const zoom = await src.getClusterExpansionZoom(clusterId)
+        const geom = feats[0].geometry as { type: 'Point'; coordinates: [number, number] }
+        map.easeTo({ center: geom.coordinates, zoom: Math.min(zoom, 14) })
+      } catch { /* ignore */ }
     })
 
     map.on('click', 'vessel-markers', (e) => {
@@ -299,8 +299,8 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       map.getCanvas().style.cursor = 'pointer'
       if (!e.features?.length) return
       const props = e.features[0].properties
-      const geom = e.features[0].geometry as GeoJSON.Point
-      const coords = geom.coordinates as [number, number]
+      const geom = e.features[0].geometry as { type: 'Point'; coordinates: [number, number] }
+      const coords = geom.coordinates
       const typeName = vesselTypeLabel(props?.type || '')
       const typeColor = VESSEL_TYPE_COLORS[props?.type || ''] || VESSEL_TYPE_DEFAULT_COLOR
       const speed = typeof props?.speed === 'number' ? props.speed.toFixed(1) : '0.0'
