@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import Mock, patch
 from backend.ai.agent import Agent
-from backend.ai.openai_client import AIConfig, health
+from backend.ai.openai_client import AIConfig, health, groq_api_keys, create_client
 from backend.ai.sessions import Conversation
 from backend.ai.tools import ToolResult
 from backend.tests.test_ai import FakeClient, request
@@ -15,6 +15,40 @@ def chunk(content=None, calls=None, finish=None):
 
 
 class ConfigTests(TestCase):
+    def test_key_list_precedence_deduplication_and_rotation(self):
+        with patch.dict(os.environ, {'GROQ_API_KEYS': '[" first ", "second", "first"]',
+                                     'GROQ_API_KEY': 'legacy'}, clear=True), \
+             patch('backend.ai.openai_client.AsyncOpenAI') as client:
+            self.assertEqual(['first', 'second'], groq_api_keys())
+            self.assertEqual('groq', AIConfig.read().provider)
+            self.assertTrue(health()['configured'])
+            for _ in range(4):
+                create_client()
+            selected = [call.kwargs['api_key'] for call in client.call_args_list]
+            self.assertEqual(selected[:2], selected[2:])
+            self.assertEqual({'first', 'second'}, set(selected[:2]))
+            self.assertNotIn('first', json.dumps(health()))
+
+    def test_invalid_key_lists_fail_without_exposing_credentials(self):
+        for raw in ['secret-key', '[]', '{}', '"secret-key"', '[null]', '[1]', '[""]', '["a b"]']:
+            with self.subTest(raw=raw), patch.dict(os.environ, {'GROQ_API_KEYS': raw}, clear=True):
+                self.assertEqual('invalid_configuration', health()['status'])
+                with self.assertRaises(ValueError) as caught:
+                    create_client()
+                self.assertNotIn('secret-key', str(caught.exception))
+
+    def test_blank_list_falls_back_and_openai_ignores_list(self):
+        with patch.dict(os.environ, {'GROQ_API_KEYS': ' ', 'GROQ_API_KEY': 'legacy'}, clear=True), \
+             patch('backend.ai.openai_client.AsyncOpenAI') as client:
+            create_client()
+            self.assertEqual('legacy', client.call_args.kwargs['api_key'])
+        with patch.dict(os.environ, {'AI_PROVIDER': 'openai', 'GROQ_API_KEYS': 'invalid',
+                                     'OPENAI_API_KEY': 'openai-test'}, clear=True), \
+             patch('backend.ai.openai_client.AsyncOpenAI') as client:
+            create_client()
+            self.assertEqual('openai-test', client.call_args.kwargs['api_key'])
+            self.assertTrue(health()['configured'])
+
     def test_groq_selection_ignores_old_openai_model(self):
         with patch.dict(os.environ, {'GROQ_API_KEY': 'test', 'OPENAI_MODEL': 'gpt-5.5'}, clear=True):
             config = AIConfig.read()

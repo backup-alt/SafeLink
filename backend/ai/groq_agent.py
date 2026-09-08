@@ -108,6 +108,6 @@ async def stream_groq(agent, request, session, config):
         status = getattr(error, 'status_code', None)
         LOG.warning('Groq generation failed (%s, HTTP %s)', type(error).__name__, status or 'n/a')
         label = ('Groq free-tier usage limit reached. Wait before retrying; daily limits may need to reset.' if status == 429
-                 else 'Groq rejected the API key. Check GROQ_API_KEY in Railway.' if status == 401
+                 else 'Groq rejected an API key. Check GROQ_API_KEYS or GROQ_API_KEY in Railway.' if status == 401
                  else 'Groq could not finish this reply. Retry a shorter question or check the configured model and service limits.')
         yield event('error', label=label)

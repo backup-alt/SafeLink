@@ -244,6 +244,23 @@ Existing `OPENAI_*` variables are ignored when `AI_PROVIDER=groq`.
 Without `AI_PROVIDER`, a nonempty `GROQ_API_KEY` selects Groq automatically.
 No automatic paid-provider fallback is performed.
 
+To distribute chat turns across multiple Groq credentials, add this backend
+Railway variable (the value is a JSON array):
+
+```text
+GROQ_API_KEYS=["key_from_account_1","key_from_account_2","key_from_account_3"]
+```
+
+A nonempty `GROQ_API_KEYS` takes precedence over `GROQ_API_KEY` and also selects
+Groq automatically when `AI_PROVIDER` is unset. Blank values use the existing
+single key. Invalid JSON or an empty array fails the health configuration check.
+Duplicate keys are removed. Each server worker rotates keys across chat turns;
+all tool rounds within a turn use the same key. Rotation restarts on deployment
+and is not coordinated across replicas. Failed requests are not automatically
+replayed on another key. Groq organization limits still apply; keys belonging
+to the same organization share its quota. App-level `SAFELINK_CHAT_*` limits
+also remain in force. Keep `APIs.txt` local and never commit real keys.
+
 Groq uses Chat Completions with streaming and the same validated marine/map
 tools. The last three completed user/assistant exchanges are retained in the
 server session; failed turns are not saved. Tool outputs are not retained across
