@@ -1,4 +1,4 @@
-import type { Catalog, ConditionSample, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, Vessel } from './types'
+import type { Catalog, ConditionSample, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, RouteResponse, Vessel } from './types'
 
 const fieldCache = new Map<string, FieldData>()
 const pendingFields = new Map<string, Promise<FieldData>>()
@@ -72,7 +72,7 @@ export const fetchRoute = async (
     signal,
   })
   if (!response.ok) throw new Error(`Route calculation failed: ${response.status}`)
-  return response.json() as Promise<{ alternatives: NavRoute[] }>
+  return response.json() as Promise<RouteResponse>
 }
 
 export const fetchNauticalClick = (lng: number, lat: number, signal?: AbortSignal) =>

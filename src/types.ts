@@ -59,6 +59,9 @@ export interface NavRoute {
   legs: { from: [number, number]; to: [number, number]; distance_km: number; heading: number; steps: number }[]
   distance_labels: { position: [number, number]; distance_km: number }[]
   speed_knots: number
+  weather_score?: number
+  weather_summary?: string
+  traffic_level?: 'low' | 'medium' | 'high'
 }
 
 export interface NauticalMeasurement {
@@ -102,8 +105,22 @@ export interface SavedNavRoute {
   eta_hours: number
   heading: number
   route: NavRoute
+  alternatives: NavRoute[]
+  selectedIndex: number
   originDetails: NauticalPointDetails | null
   destinationDetails: NauticalPointDetails | null
+}
+
+export interface RouteGroupResponse {
+  route: NavRoute
+  weather_summary: string
+  traffic_level: 'low' | 'medium' | 'high'
+  weather_score: number
+}
+
+export interface RouteResponse {
+  safest: RouteGroupResponse
+  direct: RouteGroupResponse
 }
 
 export interface NavWarning {
