@@ -1,7 +1,32 @@
 from dataclasses import dataclass
+import json
 import os
 import re
+from itertools import count
+from threading import Lock
 from openai import AsyncOpenAI
+
+
+_groq_cursor = count()
+_groq_lock = Lock()
+
+
+def groq_api_keys():
+    """Read server-owned credentials without including secrets in errors."""
+    raw = os.getenv('GROQ_API_KEYS', '').strip()
+    if not raw:
+        key = os.getenv('GROQ_API_KEY', '').strip()
+        return [key] if key else []
+    try:
+        keys = json.loads(raw)
+    except (ValueError, TypeError):
+        raise ValueError('GROQ_API_KEYS must be a JSON array of nonempty strings') from None
+    if not isinstance(keys, list) or not keys or any(
+        not isinstance(key, str) or not key.strip() or any(c.isspace() for c in key.strip())
+        for key in keys
+    ):
+        raise ValueError('GROQ_API_KEYS must be a JSON array of nonempty strings')
+    return list(dict.fromkeys(key.strip() for key in keys))
 
 
 @dataclass(frozen=True)
@@ -23,10 +48,13 @@ class AIConfig:
             if not low <= value <= high:
                 raise ValueError('Invalid chat limit')
             return value
-        provider = os.getenv('AI_PROVIDER', 'groq' if os.getenv('GROQ_API_KEY', '').strip() else 'openai').strip().lower()
+        provider = os.getenv('AI_PROVIDER', 'groq' if any(os.getenv(name, '').strip()
+                            for name in ('GROQ_API_KEYS', 'GROQ_API_KEY')) else 'openai').strip().lower()
         if provider not in {'groq', 'openai'}:
             raise ValueError('Invalid AI provider')
         prefix = 'GROQ' if provider == 'groq' else 'OPENAI'
+        if provider == 'groq':
+            groq_api_keys()
         effort = os.getenv(prefix + '_REASONING_EFFORT', 'medium')
         if effort not in {'none', 'low', 'medium', 'high', 'xhigh'}:
             raise ValueError('Invalid reasoning effort')
@@ -46,7 +74,7 @@ def health():
         config = AIConfig.read()
     except (ValueError, TypeError):
         return {'status': 'invalid_configuration', 'configured': False}
-    configured = bool(os.getenv('GROQ_API_KEY' if config.provider == 'groq' else 'OPENAI_API_KEY', '').strip())
+    configured = bool(groq_api_keys() if config.provider == 'groq' else os.getenv('OPENAI_API_KEY', '').strip())
     return {'status': 'configured_unverified' if configured else 'missing_api_key',
             'configured': configured, 'operational': None,
             'provider': config.provider, 'model': config.model, 'reasoning_effort': config.effort,
@@ -56,6 +84,15 @@ def health():
 def create_client():
     # Never forward arbitrary endpoint overrides or browser-supplied credentials.
     groq = AIConfig.read().provider == 'groq'
-    return AsyncOpenAI(api_key=os.environ['GROQ_API_KEY' if groq else 'OPENAI_API_KEY'],
+    if groq:
+        keys = groq_api_keys()
+        if not keys:
+            raise ValueError('Configure GROQ_API_KEYS or GROQ_API_KEY')
+        # One key per chat turn, including its tool rounds. Each worker rotates independently.
+        with _groq_lock:
+            api_key = keys[next(_groq_cursor) % len(keys)]
+    else:
+        api_key = os.environ['OPENAI_API_KEY']
+    return AsyncOpenAI(api_key=api_key,
                        base_url='https://api.groq.com/openai/v1' if groq else 'https://api.openai.com/v1',
                        timeout=60, max_retries=0)

@@ -143,7 +143,7 @@ def create_router(repository, pfz):
     async def chat(body: ChatRequest, request: Request):
         check_origin(request)
         if not health()['configured']:
-            raise HTTPException(503, 'SafeLink chat is not configured. Set GROQ_API_KEY for Groq or OPENAI_API_KEY for OpenAI and check AI_PROVIDER. The map remains available.')
+            raise HTTPException(503, 'SafeLink chat is not configured. Set GROQ_API_KEYS or GROQ_API_KEY for Groq, or OPENAI_API_KEY for OpenAI, and check AI_PROVIDER. The map remains available.')
         config = AIConfig.read()
         if str(body.conversation_id) not in store.sessions:
             await restore(request)
