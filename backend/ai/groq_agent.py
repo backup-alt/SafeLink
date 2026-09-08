@@ -8,6 +8,7 @@ from .agent import LOG
 from .prompts import SYSTEM_PROMPT
 from .schemas import event
 from .tools import TOOL_MODELS, definitions, execution_cost
+from .openai_client import groq_api_keys
 
 
 def unsupported_dates(answer, source_payloads):
@@ -29,33 +30,58 @@ async def stream_groq(agent, request, session, config):
              for tool in definitions()]
     count = 0
     source_payloads = []
-    try:
-        async with asyncio.timeout(180), agent.client_factory() as client:
-            for _ in range(config.rounds):
-                upstream = await client.chat.completions.create(model=config.model, messages=messages,
-                    tools=tools, tool_choice='auto', parallel_tool_calls=False,
-                    max_completion_tokens=config.output_tokens, stream=True)
-                calls, answer, finish = {}, '', None
+    async def call_with_failover(params):
+        # Retry the upstream request on another credential when a key is exhausted
+        # or rejected. The stream is consumed inside the context so failures during
+        # streaming are also eligible for failover before any tool is executed.
+        try:
+            max_attempts = max(1, len(groq_api_keys()))
+        except ValueError:
+            max_attempts = 1
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                factory = agent.client_factory
                 try:
-                    async for chunk in upstream:
-                        if not chunk.choices:
-                            continue
-                        choice = chunk.choices[0]
-                        finish = choice.finish_reason or finish
-                        if choice.delta.content:
-                            answer += choice.delta.content
-                        # Reasoning fields are intentionally never forwarded.
-                        for part in choice.delta.tool_calls or []:
-                            call = calls.setdefault(part.index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
-                            if part.id:
-                                call['id'] = part.id
-                            if part.function:
-                                call['function']['name'] += part.function.name or ''
-                                call['function']['arguments'] += part.function.arguments or ''
-                            if len(call['function']['arguments']) > 16000 or len(calls) > 12:
-                                raise ValueError('Tool payload limit')
-                finally:
-                    await upstream.close()
+                    context = factory(rotate=attempt > 0)
+                except TypeError:
+                    context = factory()
+                async with context as client:
+                    upstream = await client.chat.completions.create(**params)
+                    calls, answer, finish = {}, '', None
+                    try:
+                        async for chunk in upstream:
+                            if not chunk.choices:
+                                continue
+                            choice = chunk.choices[0]
+                            finish = choice.finish_reason or finish
+                            if choice.delta.content:
+                                answer += choice.delta.content
+                            for part in choice.delta.tool_calls or []:
+                                call = calls.setdefault(part.index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
+                                if part.id:
+                                    call['id'] = part.id
+                                if part.function:
+                                    call['function']['name'] += part.function.name or ''
+                                    call['function']['arguments'] += part.function.arguments or ''
+                                if len(call['function']['arguments']) > 16000 or len(calls) > 12:
+                                    raise ValueError('Tool payload limit')
+                    finally:
+                        await upstream.close()
+                    return calls, answer, finish
+            except Exception as error:
+                last_error = error
+                status = getattr(error, 'status_code', None)
+                if status not in {401, 429} or attempt + 1 >= max_attempts:
+                    raise
+        raise last_error
+
+    try:
+        async with asyncio.timeout(180):
+            for _ in range(config.rounds):
+                calls, answer, finish = await call_with_failover(dict(model=config.model, messages=messages,
+                    tools=tools, tool_choice='auto', parallel_tool_calls=False,
+                    max_completion_tokens=config.output_tokens, stream=True))
                 if finish == 'stop' and not calls:
                     if source_payloads and unsupported_dates(answer, source_payloads):
                         yield event('error', label='The assistant generated dates that could not be verified against its sources. This reply was withheld; please retry a more specific question.')
