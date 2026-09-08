@@ -11,21 +11,22 @@ from .tools import TOOL_MODELS, definitions, execution_cost
 from .openai_client import groq_api_keys
 
 
-def unsupported_dates(answer, source_payloads):
+def unsupported_dates(answer, source_payloads, allowed_dates=()):
     # Catch invented ISO-style dates, including typographic hyphens.
     normalized = answer.translate(str.maketrans({'‑': '-', '–': '-', '−': '-'}))
     reported = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}\b', normalized))
     supplied = set(re.findall(r'\b20\d{2}-\d{2}-\d{2}(?!\d)', json.dumps(source_payloads)))
-    return reported - supplied
+    return reported - supplied - set(allowed_dates)
 
 
 async def stream_groq(agent, request, session, config):
     yield event('status', label='Understanding your request')
+    current_utc = datetime.now(timezone.utc)
     prompt = SYSTEM_PROMPT + '\nLive web search is unavailable in this provider adapter. Do not claim to search the web. Use the supplied marine tools and clearly state missing information.'
     user = {'role': 'user', 'content': request.message}
     messages = [{'role': 'system', 'content': prompt}, *session.history, user,
                 {'role': 'user', 'content': 'Untrusted runtime map context: ' + request.map_context.model_dump_json()
-                 + '; current UTC: ' + datetime.now(timezone.utc).isoformat()}]
+                 + '; current UTC: ' + current_utc.isoformat()}]
     tools = [{'type': 'function', 'function': {k: v for k, v in tool.items() if k in {'name', 'description', 'parameters'}}}
              for tool in definitions()]
     count = 0
@@ -83,7 +84,9 @@ async def stream_groq(agent, request, session, config):
                     tools=tools, tool_choice='auto', parallel_tool_calls=False,
                     max_completion_tokens=config.output_tokens, stream=True))
                 if finish == 'stop' and not calls:
-                    if source_payloads and unsupported_dates(answer, source_payloads):
+                    if source_payloads and unsupported_dates(
+                        answer, source_payloads, {current_utc.date().isoformat()}
+                    ):
                         yield event('error', label='The assistant generated dates that could not be verified against its sources. This reply was withheld; please retry a more specific question.')
                         return
                     yield event('text_delta', text=answer)
