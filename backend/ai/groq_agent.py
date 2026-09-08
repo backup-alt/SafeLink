@@ -11,6 +11,10 @@ from .tools import TOOL_MODELS, definitions, execution_cost
 from .openai_client import groq_api_keys
 
 
+class IncompleteGroqResponse(Exception):
+    pass
+
+
 def unsupported_dates(answer, source_payloads, allowed_dates=()):
     # Catch invented ISO-style dates, including typographic hyphens.
     normalized = answer.translate(str.maketrans({'‑': '-', '–': '-', '−': '-'}))
@@ -69,11 +73,16 @@ async def stream_groq(agent, request, session, config):
                                     raise ValueError('Tool payload limit')
                     finally:
                         await upstream.close()
+                    complete = (finish == 'stop' and not calls) or (finish == 'tool_calls' and bool(calls))
+                    if not complete:
+                        raise IncompleteGroqResponse()
                     return calls, answer, finish
             except Exception as error:
                 last_error = error
                 status = getattr(error, 'status_code', None)
-                if status not in {401, 429} or attempt + 1 >= max_attempts:
+                retry_limit = max_attempts if status in {401, 429} else min(max_attempts, 3)
+                retryable = status in {401, 429} or isinstance(error, IncompleteGroqResponse)
+                if not retryable or attempt + 1 >= retry_limit:
                     raise
         raise last_error
 
@@ -94,8 +103,6 @@ async def stream_groq(agent, request, session, config):
                     session.history = (session.history + [user, {'role': 'assistant', 'content': answer}])[-6:]
                     yield event('done')
                     return
-                if finish != 'tool_calls' or not calls:
-                    raise ValueError('Incomplete response')
                 messages.append({'role': 'assistant', 'content': answer or None, 'tool_calls': list(calls.values())})
                 for call in calls.values():
                     count += execution_cost(call['function']['name'], call['function']['arguments'])
