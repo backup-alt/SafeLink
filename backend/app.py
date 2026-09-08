@@ -445,6 +445,113 @@ def _water_segment(p1, p2):
         return False
 
 
+def _sample_weather_along_route(coordinates, sample_count=6):
+    """Sample weather at multiple points along a route and return scores."""
+    if len(coordinates) < 2:
+        return 1.0, "Insufficient route data", []
+    samples = []
+    n = len(coordinates)
+    for i in range(sample_count):
+        t = i / max(1, sample_count - 1)
+        idx = min(int(t * (n - 1)), n - 2)
+        frac = t * (n - 1) - idx
+        lon = coordinates[idx][0] + frac * (coordinates[idx + 1][0] - coordinates[idx][0])
+        lat = coordinates[idx][1] + frac * (coordinates[idx + 1][1] - coordinates[idx][1])
+        try:
+            forecast = _marine_forecast(lat, lon)
+            wave_val = forecast.get("wave_height", {}).get("value")
+            curr_val = forecast.get("current_speed", {}).get("value")
+            wave = float(wave_val) if wave_val is not None else 0.0
+            curr = float(curr_val) if curr_val is not None else 0.0
+            samples.append({"lon": lon, "lat": lat, "wave_height": wave, "current_speed": curr})
+        except Exception:
+            samples.append({"lon": lon, "lat": lat, "wave_height": 0.0, "current_speed": 0.0})
+    max_wave = max((s["wave_height"] for s in samples), default=0.0)
+    max_curr = max((s["current_speed"] for s in samples), default=0.0)
+    avg_wave = sum(s["wave_height"] for s in samples) / max(1, len(samples))
+    wave_penalty = 0.0
+    if max_wave > 4.0:
+        wave_penalty = 0.5
+    elif max_wave > 2.5:
+        wave_penalty = 0.3
+    elif max_wave > 1.5:
+        wave_penalty = 0.15
+    curr_penalty = 0.0
+    if max_curr > 2.0:
+        curr_penalty = 0.2
+    elif max_curr > 1.5:
+        curr_penalty = 0.1
+    score = max(0.0, min(1.0, 1.0 - wave_penalty - curr_penalty))
+    parts = []
+    if max_wave > 0.5:
+        parts.append(f"{max_wave:.1f}m waves")
+    if max_curr > 0.3:
+        parts.append(f"{max_curr:.1f}kn currents")
+    summary = ", ".join(parts) if parts else "Calm seas"
+    return score, summary, samples
+
+
+def _traffic_score_along_route(coordinates):
+    """Estimate traffic density along route using AIS data."""
+    if len(coordinates) < 2:
+        return "low", 0
+    lons = [c[0] for c in coordinates]
+    lats = [c[1] for c in coordinates]
+    bbox = {"west": min(lons) - 0.5, "south": min(lats) - 0.5, "east": max(lons) + 0.5, "north": max(lats) + 0.5}
+    try:
+        from . import ais_service
+        vessels = ais_service.get_vessels(bbox["west"], bbox["south"], bbox["east"], bbox["north"])
+    except Exception:
+        return "low", 0
+    if not vessels:
+        return "low", 0
+    route_line = LineString(coordinates)
+    buffered = route_line.buffer(0.5)
+    nearby = 0
+    for v in vessels:
+        try:
+            vlon = float(v.get("longitude", 0))
+            vlat = float(v.get("latitude", 0))
+            if buffered.contains(Point(vlon, vlat)):
+                nearby += 1
+        except (ValueError, TypeError):
+            continue
+    if nearby > 15:
+        return "high", nearby
+    elif nearby > 5:
+        return "medium", nearby
+    return "low", nearby
+
+
+def _pfz_proximity_score(coordinates):
+    """Check if route passes near Potential Fishing Zones."""
+    if len(coordinates) < 2:
+        return 0.0, "No PFZ data"
+    try:
+        snapshot = pfz_service.get()
+        features = snapshot.get("data", {}).get("features", [])
+    except Exception:
+        return 0.0, "PFZ data unavailable"
+    if not features:
+        return 0.0, "No active PFZ zones"
+    route_line = LineString(coordinates)
+    min_dist = float("inf")
+    for feat in features:
+        try:
+            geom = shape(feat["geometry"])
+            dist = route_line.distance(geom) * 111.0
+            min_dist = min(min_dist, dist)
+        except Exception:
+            continue
+    if min_dist < 20:
+        return 1.0, "Near active fishing zone"
+    elif min_dist < 50:
+        return 0.7, "Close to fishing zone"
+    elif min_dist < 100:
+        return 0.4, "Moderate distance to fishing zone"
+    return 0.1, "Far from fishing zones"
+
+
 def _perpendicular_offset(lon1, lat1, lon2, lat2, distance_km, direction):
     mid_lon = (lon1 + lon2) / 2
     mid_lat = (lat1 + lat2) / 2
@@ -848,7 +955,7 @@ def _build_route_response(all_points, speed_knots, inserted_detours, unresolved_
 
 @app.post("/api/route")
 def calculate_route(body: dict):
-    """Advisory Demo Route — Not Certified for Navigation. Returns 3 route alternatives."""
+    """Advisory Demo Route — Not Certified for Navigation. Returns safest and direct route groups."""
     origin = body.get("origin", [0, 0])
     destination = body.get("destination", [0, 0])
     waypoints = body.get("waypoints", [])
@@ -860,14 +967,14 @@ def calculate_route(body: dict):
         list(all_points), prefer_direction=None
     )
     shortest_route = _build_route_response(
-        shortest_planned, speed_knots, shortest_inserted, shortest_unresolved, label="Shortest"
+        shortest_planned, speed_knots, shortest_inserted, shortest_unresolved, label="Direct Route"
     )
 
     western_planned, western_inserted, western_unresolved = _plan_single_route(
         list(all_points), prefer_direction="west", reference_path=shortest_planned
     )
     western_route = _build_route_response(
-        western_planned, speed_knots, western_inserted, western_unresolved, label="Western"
+        western_planned, speed_knots, western_inserted, western_unresolved, label="Safest Route"
     )
 
     eastern_planned, eastern_inserted, eastern_unresolved = _plan_single_route(
@@ -875,10 +982,50 @@ def calculate_route(body: dict):
         exclude_paths=[western_planned]
     )
     eastern_route = _build_route_response(
-        eastern_planned, speed_knots, eastern_inserted, eastern_unresolved, label="Eastern"
+        eastern_planned, speed_knots, eastern_inserted, eastern_unresolved, label="Scenic Route"
     )
 
-    return {"alternatives": [shortest_route, western_route, eastern_route]}
+    candidates = [
+        ("western", western_route, western_planned),
+        ("shortest", shortest_route, shortest_planned),
+        ("eastern", eastern_route, eastern_planned),
+    ]
+
+    scored = []
+    for name, route_data, planned_coords in candidates:
+        coords = route_data.get("coordinates", [])
+        weather_score, weather_summary, _ = _sample_weather_along_route(coords)
+        traffic_level, traffic_count = _traffic_score_along_route(coords)
+        pfz_score, pfz_summary = _pfz_proximity_score(coords)
+        combined_score = weather_score * 0.5 + pfz_score * 0.3 + (1.0 if traffic_level == "low" else 0.5 if traffic_level == "medium" else 0.2) * 0.2
+        route_data["weather_score"] = round(combined_score, 2)
+        route_data["weather_summary"] = weather_summary
+        route_data["traffic_level"] = traffic_level
+        route_data["pfz_summary"] = pfz_summary
+        scored.append((combined_score, name, route_data))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    safest_data = scored[0][2]
+    safest_data["label"] = "Safest Route"
+    direct_data = scored[-1][2]
+    direct_data["label"] = "Direct Route"
+
+    return {
+        "safest": {
+            "route": safest_data,
+            "weather_summary": safest_data.get("weather_summary", ""),
+            "traffic_level": safest_data.get("traffic_level", "low"),
+            "weather_score": safest_data.get("weather_score", 0),
+            "pfz_summary": safest_data.get("pfz_summary", ""),
+        },
+        "direct": {
+            "route": direct_data,
+            "weather_summary": direct_data.get("weather_summary", ""),
+            "traffic_level": direct_data.get("traffic_level", "low"),
+            "weather_score": direct_data.get("weather_score", 0),
+            "pfz_summary": direct_data.get("pfz_summary", ""),
+        },
+    }
 
 
 LAYERS_FOR_CLICK = ["waves", "currents", "temperature", "sea_level", "chlorophyll"]

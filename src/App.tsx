@@ -235,6 +235,7 @@ export default function App() {
   const [navRoute, setNavRoute] = useState<NavRoute | null>(null)
   const [navRouteAlternatives, setNavRouteAlternatives] = useState<NavRoute[]>([])
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
+  const [routeGroupMeta, setRouteGroupMeta] = useState<{ safest: import('./types').RouteGroupResponse; direct: import('./types').RouteGroupResponse } | null>(null)
   const [navLoading, setNavLoading] = useState(false)
   const [navPointLoading, setNavPointLoading] = useState<'origin' | 'destination' | null>(null)
   const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
@@ -698,10 +699,11 @@ export default function App() {
     setNavError(null)
     try {
       const result = await fetchRoute(navOrigin, navDestination, navWaypoints, navSpeed)
-      const alternatives = result.alternatives ?? []
+      const alternatives = [result.safest.route, result.direct.route]
       setNavRouteAlternatives(alternatives)
       setSelectedRouteIndex(0)
       setNavRoute(alternatives[0] ?? null)
+      setRouteGroupMeta({ safest: result.safest, direct: result.direct })
     } catch { setNavError('Route calculation failed. Check that the backend supports POST requests.') }
     finally { setNavLoading(false) }
   }, [navOrigin, navDestination, navWaypoints, navSpeed])
@@ -733,11 +735,13 @@ export default function App() {
       eta_hours: navRoute.eta_hours,
       heading: navRoute.heading,
       route: navRoute,
+      alternatives: navRouteAlternatives,
+      selectedIndex: selectedRouteIndex,
       originDetails: navOriginDetails,
       destinationDetails: navDestinationDetails,
     }
     setSavedNavRoutes((previous) => [saved, ...previous].slice(0, 12))
-  }, [navDestination, navDestinationDetails, navOrigin, navOriginDetails, navRoute, navSpeed, navWaypoints])
+  }, [navDestination, navDestinationDetails, navOrigin, navOriginDetails, navRoute, navRouteAlternatives, navSpeed, navWaypoints, selectedRouteIndex])
 
   const handleLoadSavedRoute = useCallback((saved: SavedNavRoute) => {
     setNavOrigin(saved.origin)
@@ -745,6 +749,8 @@ export default function App() {
     setNavWaypoints(saved.waypoints)
     setNavSpeed(saved.speed_knots)
     setNavRoute(saved.route)
+    setNavRouteAlternatives(saved.alternatives || [saved.route])
+    setSelectedRouteIndex(saved.selectedIndex || 0)
     setNavRouteMode('auto')
     setNavOriginDetails(saved.originDetails)
     setNavDestinationDetails(saved.destinationDetails)
@@ -757,6 +763,7 @@ export default function App() {
     setNavRoute(null)
     setNavRouteAlternatives([])
     setSelectedRouteIndex(0)
+    setRouteGroupMeta(null)
     setNavOrigin(null)
     setNavDestination(null)
     setNavOriginDetails(null)
@@ -972,6 +979,7 @@ export default function App() {
           route={navRoute}
           alternatives={navRouteAlternatives}
           selectedRouteIndex={selectedRouteIndex}
+          routeGroupMeta={routeGroupMeta}
           loading={navLoading}
           pointLoading={navPointLoading}
           picking={navPicking}
