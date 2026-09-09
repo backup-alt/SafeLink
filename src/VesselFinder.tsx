@@ -14,22 +14,7 @@ import {
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl)
 
-const DARK_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: 'https://tiles.versatiles.org/assets/fonts/{fontstack}/{range}.pbf',
-  sources: {
-    'safelink-land': {
-      type: 'geojson',
-      data: '/indian-ocean-land.geojson',
-      attribution: 'Land data © Natural Earth',
-    },
-  },
-  layers: [
-    { id: 'ocean-background', type: 'background', paint: { 'background-color': '#0a1520' } },
-    { id: 'land-fill', type: 'fill', source: 'safelink-land', paint: { 'fill-color': '#1a2530', 'fill-opacity': 1 } },
-    { id: 'coastline', type: 'line', source: 'safelink-land', paint: { 'line-color': '#2a3a45', 'line-width': 1 } },
-  ],
-}
+const SEAMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 
 const TYPE_COLOR_MATCH: maplibregl.ExpressionSpecification = [
   'match', ['get', 'type'],
@@ -155,13 +140,13 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
     if (layersCreatedRef.current) return
 
     if (!map.hasImage('vessel-arrow')) {
-      const s = 11
+      const s = 20
       const canvas = document.createElement('canvas')
       canvas.width = s
       canvas.height = s
       const ctx = canvas.getContext('2d')!
       ctx.clearRect(0, 0, s, s)
-      ctx.fillStyle = '#ffffff'
+      ctx.fillStyle = '#000000'
       ctx.beginPath()
       ctx.moveTo(s / 2, 0)
       ctx.lineTo(s, s)
@@ -169,15 +154,15 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       ctx.lineTo(0, s)
       ctx.closePath()
       ctx.fill()
-      map.addImage('vessel-arrow', { width: s, height: s, data: ctx.getImageData(0, 0, s, s).data })
+      map.addImage('vessel-arrow', { width: s, height: s, data: ctx.getImageData(0, 0, s, s).data, sdf: true })
     }
 
     map.addSource('vessels', {
       type: 'geojson',
       data,
       cluster: true,
-      clusterMaxZoom: 10,
-      clusterRadius: 50,
+      clusterMaxZoom: 6,
+      clusterRadius: 40,
     })
 
     map.addLayer({
@@ -226,7 +211,7 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       filter: ['!', ['has', 'point_count']],
       layout: {
           'icon-image': 'vessel-arrow',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 12, 1.3],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.7, 8, 1.2],
         'icon-rotate': ['get', 'course'],
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
@@ -254,9 +239,9 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
         'text-halo-width': 1.5,
         'text-opacity': [
           'interpolate', ['linear'], ['zoom'],
-          6, 0,
-          8, 0.4,
-          10, 1,
+          4, 0,
+          6, 0.5,
+          8, 1,
         ],
       },
     })
@@ -339,7 +324,7 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
     if (!containerRef.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: DARK_STYLE,
+      style: SEAMAP_STYLE,
       center,
       zoom,
       minZoom: 2,
