@@ -1117,5 +1117,35 @@ def geocode(q: str = Query(min_length=2, max_length=120)):
     return results
 
 
+from .hf_routes import store as route_store
+
+
+@app.get("/api/saved-routes")
+def list_saved_routes(user_id: str = Query(default="default")):
+    if not route_store.configured:
+        return []
+    return route_store.get_routes(user_id)
+
+
+@app.post("/api/saved-routes")
+def create_saved_route(body: dict, user_id: str = Query(default="default")):
+    if not route_store.configured:
+        raise HTTPException(status_code=503, detail="Hugging Face storage not configured. Set HF_TOKEN and HF_CHAT_DATASET_REPO.")
+    saved = route_store.save_route(user_id, body)
+    if saved is None:
+        raise HTTPException(status_code=500, detail="Failed to save route")
+    return saved
+
+
+@app.delete("/api/saved-routes/{route_id}")
+def remove_saved_route(route_id: str, user_id: str = Query(default="default")):
+    if not route_store.configured:
+        raise HTTPException(status_code=503, detail="Hugging Face storage not configured.")
+    deleted = route_store.delete_route(user_id, route_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Route not found")
+    return {"deleted": True}
+
+
 if (ROOT / "dist").exists():
     app.mount("/", StaticFiles(directory=ROOT / "dist", html=True), name="frontend")

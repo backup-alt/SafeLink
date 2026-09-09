@@ -1,4 +1,4 @@
-import type { Catalog, ConditionSample, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, RouteResponse, Vessel } from './types'
+import type { Catalog, ConditionSample, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, RouteResponse, SavedNavRoute, Vessel } from './types'
 
 const fieldCache = new Map<string, FieldData>()
 const pendingFields = new Map<string, Promise<FieldData>>()
@@ -85,3 +85,26 @@ export const fetchNauticalPoint = (point: [number, number], signal?: AbortSignal
 
 export const searchPlaces = (query: string, signal?: AbortSignal) =>
   getJson<GeocodeResult[]>(`/api/geocode?q=${encodeURIComponent(query)}`, signal)
+
+export const fetchSavedRoutes = (signal?: AbortSignal) =>
+  getJson<SavedNavRoute[]>('/api/saved-routes', signal)
+
+export const saveRouteToServer = async (route: SavedNavRoute, signal?: AbortSignal) => {
+  const response = await fetch('/api/saved-routes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(route),
+    signal,
+  })
+  if (!response.ok) throw new Error(`Save failed: ${response.status}`)
+  return response.json() as Promise<SavedNavRoute>
+}
+
+export const deleteSavedRouteFromServer = async (routeId: string, signal?: AbortSignal) => {
+  const response = await fetch(`/api/saved-routes/${encodeURIComponent(routeId)}`, {
+    method: 'DELETE',
+    signal,
+  })
+  if (!response.ok) throw new Error(`Delete failed: ${response.status}`)
+  return response.json() as Promise<{ deleted: boolean }>
+}
