@@ -3,7 +3,7 @@ import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Clock3, Droplets, Info,
   Layers3, LoaderCircle, Menu, Navigation2, Pause, Play, Search, Thermometer, Waves, X,
 } from 'lucide-react'
-import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, fetchNauticalClick, fetchNauticalPoint, fetchRoute, fetchVessels, prefetchField, searchPlaces } from './api'
+import { fetchCatalog, fetchCondition, fetchField, fetchNearestPFZ, fetchPFZ, fetchNauticalClick, fetchNauticalPoint, fetchRoute, fetchSavedRoutes, saveRouteToServer, deleteSavedRouteFromServer, fetchVessels, prefetchField, searchPlaces } from './api'
 import OceanMap from './OceanMap'
 import SafetyIndicator from './SafetyIndicator'
 import ChatPanel from './ChatPanel'
@@ -582,12 +582,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('safelink.nav.routes') || '[]') as SavedNavRoute[]
-      if (Array.isArray(saved)) setSavedNavRoutes(saved)
-    } catch {
-      setSavedNavRoutes([])
-    }
+    let cancelled = false
+    fetchSavedRoutes()
+      .then((routes) => {
+        if (!cancelled && Array.isArray(routes) && routes.length > 0) {
+          setSavedNavRoutes(routes)
+          return
+        }
+        const local = JSON.parse(localStorage.getItem('safelink.nav.routes') || '[]') as SavedNavRoute[]
+        if (!cancelled && Array.isArray(local)) setSavedNavRoutes(local)
+      })
+      .catch(() => {
+        try {
+          const local = JSON.parse(localStorage.getItem('safelink.nav.routes') || '[]') as SavedNavRoute[]
+          if (!cancelled && Array.isArray(local)) setSavedNavRoutes(local)
+        } catch { /* ignore */ }
+      })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -741,6 +752,7 @@ export default function App() {
       destinationDetails: navDestinationDetails,
     }
     setSavedNavRoutes((previous) => [saved, ...previous].slice(0, 12))
+    saveRouteToServer(saved).catch(() => { /* fallback: already in local state */ })
   }, [navDestination, navDestinationDetails, navOrigin, navOriginDetails, navRoute, navRouteAlternatives, navSpeed, navWaypoints, selectedRouteIndex])
 
   const handleLoadSavedRoute = useCallback((saved: SavedNavRoute) => {
@@ -997,7 +1009,10 @@ export default function App() {
           onSelectRoute={handleSelectRoute}
           onSaveRoute={handleSaveRoute}
           onLoadRoute={handleLoadSavedRoute}
-          onDeleteSavedRoute={(id) => setSavedNavRoutes((previous) => previous.filter((saved) => saved.id !== id))}
+          onDeleteSavedRoute={(id) => {
+            setSavedNavRoutes((previous) => previous.filter((saved) => saved.id !== id))
+            deleteSavedRouteFromServer(id).catch(() => { /* fallback: already removed from local state */ })
+          }}
           onClear={handleClearRoute}
           onClose={() => { handleClearRoute(); setNavSpeed(10); setShowWeatherOverlay(false); setWeatherPoints([]) }}
           waypoints={navWaypoints}
