@@ -116,6 +116,7 @@ export interface RouteGroupResponse {
   weather_summary: string
   traffic_level: 'low' | 'medium' | 'high'
   weather_score: number
+  pfz_summary: string
 }
 
 export interface RouteResponse {
