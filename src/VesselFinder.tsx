@@ -154,7 +154,7 @@ function VesselFinder({ center, zoom, onCenterChange, onVesselSelect, selectedVe
       ctx.lineTo(0, s)
       ctx.closePath()
       ctx.fill()
-      map.addImage('vessel-arrow', { width: s, height: s, data: ctx.getImageData(0, 0, s, s).data, sdf: true })
+      map.addImage('vessel-arrow', { width: s, height: s, data: ctx.getImageData(0, 0, s, s).data }, { sdf: true })
     }
 
     map.addSource('vessels', {
