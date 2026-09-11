@@ -1,4 +1,4 @@
-import type { Catalog, ConditionSample, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, RouteResponse, SavedNavRoute, Vessel } from './types'
+import type { Catalog, ConditionSample, EmergencyRequest, EmergencyResponse, FieldData, GeocodeResult, LayerId, NauticalPointDetails, NavRoute, NearestPFZ, PFZResponse, RouteResponse, SavedNavRoute, Vessel } from './types'
 
 const fieldCache = new Map<string, FieldData>()
 const pendingFields = new Map<string, Promise<FieldData>>()
@@ -107,4 +107,18 @@ export const deleteSavedRouteFromServer = async (routeId: string, signal?: Abort
   })
   if (!response.ok) throw new Error(`Delete failed: ${response.status}`)
   return response.json() as Promise<{ deleted: boolean }>
+}
+
+export const sendEmergencyHelp = async (request: EmergencyRequest, signal?: AbortSignal) => {
+  const response = await fetch('/api/emergency/help', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: `Request failed: ${response.status}` }))
+    throw new Error(err.detail || `Request failed: ${response.status}`)
+  }
+  return response.json() as Promise<EmergencyResponse>
 }

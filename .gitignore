@@ -23,6 +23,9 @@ copernicus_data/
 *.nc
 *.part
 
+# Local runtime data (emergency requests, etc.)
+data/
+
 # Runtime and local verification artifacts
 *.log
 *.png

@@ -1147,5 +1147,43 @@ def remove_saved_route(route_id: str, user_id: str = Query(default="default")):
     return {"deleted": True}
 
 
+from .hf_emergency import emergency_store
+
+EMERGENCY_TYPES = {"fire", "medical", "engine_failure", "collision", "sinking", "person_overboard", "other"}
+
+
+@app.post("/api/emergency/help", status_code=201)
+def emergency_help(body: dict):
+    emergency_type = (body.get("emergency_type") or "").strip().lower()
+    if emergency_type not in EMERGENCY_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid emergency_type. Must be one of: {', '.join(sorted(EMERGENCY_TYPES))}")
+    vessel_name = (body.get("vessel_name") or "").strip()
+    vessel_mmsi = (body.get("vessel_mmsi") or "").strip()
+    if not vessel_name or not vessel_mmsi:
+        raise HTTPException(status_code=400, detail="vessel_name and vessel_mmsi are required")
+    for field in ("vessel_lat", "vessel_lon", "user_lat", "user_lon"):
+        val = body.get(field)
+        if val is None or not isinstance(val, (int, float)):
+            raise HTTPException(status_code=400, detail=f"{field} is required and must be a number")
+    record = emergency_store.create_request({
+        "emergency_type": emergency_type,
+        "vessel_name": vessel_name,
+        "vessel_mmsi": vessel_mmsi,
+        "vessel_lat": body["vessel_lat"],
+        "vessel_lon": body["vessel_lon"],
+        "user_lat": body["user_lat"],
+        "user_lon": body["user_lon"],
+        "message": (body.get("message") or "").strip()[:500],
+    })
+    if record is None:
+        raise HTTPException(status_code=500, detail="Failed to create emergency request. Storage may be unavailable.")
+    return {
+        "success": True,
+        "request_id": record["id"],
+        "status": record["status"],
+        "message": "Emergency request created and logged in SafeLink backend. This has NOT been delivered to the target vessel via maritime radio.",
+    }
+
+
 if (ROOT / "dist").exists():
     app.mount("/", StaticFiles(directory=ROOT / "dist", html=True), name="frontend")
