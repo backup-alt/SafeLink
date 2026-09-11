@@ -1,4 +1,4 @@
-import { Ship, X } from 'lucide-react'
+import { AlertTriangle, Ship, X } from 'lucide-react'
 import type { Vessel } from './types'
 
 const VESSEL_TYPE_MAP: Record<string, string> = {
@@ -28,7 +28,7 @@ function navStatusLabel(status: string): string {
   return statuses[status] || status || 'Unknown'
 }
 
-export default function VesselDetails({ vessel, onClose }: { vessel: Vessel; onClose: () => void }) {
+export default function VesselDetails({ vessel, onClose, onGetHelp }: { vessel: Vessel; onClose: () => void; onGetHelp: () => void }) {
   return (
     <section className="inspection-card glass vessel-details" aria-label="Vessel details">
       <button type="button" onClick={onClose} aria-label="Close vessel details"><X size={16} /></button>
@@ -44,6 +44,10 @@ export default function VesselDetails({ vessel, onClose }: { vessel: Vessel; onC
       <div className="inspection-row"><span>Last Update</span><b>{vessel.lastUpdate || 'Unknown'}</b></div>
       <div className="inspection-row"><span>Source</span><b>{vessel.source || 'AIS'}</b></div>
       <small>Vessel data: Open Waters AIS aggregator (near-real-time, terrestrial receivers). Destination/ETA not available from this source.</small>
+      <button type="button" className="emergency-help-btn" onClick={onGetHelp}>
+        <AlertTriangle size={14} />
+        GET HELP
+      </button>
     </section>
   )
 }

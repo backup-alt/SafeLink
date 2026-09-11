@@ -11,6 +11,7 @@ import { isMapAction } from './chatTypes'
 import NauticalChart from './NauticalChart'
 import VesselFinder from './VesselFinder'
 import VesselDetails from './VesselDetails'
+import EmergencyHelpModal from './EmergencyHelpModal'
 import MapViewSwitcher from './MapViewSwitcher'
 import NavigationPanel from './NavigationPanel'
 import type { MapAction, MapContext } from './chatTypes'
@@ -239,6 +240,7 @@ export default function App() {
   const [navLoading, setNavLoading] = useState(false)
   const [navPointLoading, setNavPointLoading] = useState<'origin' | 'destination' | null>(null)
   const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false)
   const [navPicking, setNavPicking] = useState<'origin' | 'destination' | 'waypoint' | null>(null)
   const [nauticalInfo, setNauticalInfo] = useState<{ coordinates: { lng: number; lat: number }; conditions: Record<string, { value: number; unit: string; time: string } | null> } | null>(null)
   const [navWaypoints, setNavWaypoints] = useState<[number, number][]>([])
@@ -1041,7 +1043,11 @@ export default function App() {
       )}
 
       {mapView === 'vessels' && selectedVessel && (
-        <VesselDetails vessel={selectedVessel} onClose={() => setSelectedVessel(null)} />
+        <VesselDetails vessel={selectedVessel} onClose={() => setSelectedVessel(null)} onGetHelp={() => setShowEmergencyModal(true)} />
+      )}
+
+      {showEmergencyModal && selectedVessel && (
+        <EmergencyHelpModal vessel={selectedVessel} onClose={() => setShowEmergencyModal(false)} />
       )}
 
       {mapView === 'nautical' && navError && (

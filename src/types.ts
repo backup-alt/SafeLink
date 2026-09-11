@@ -226,3 +226,33 @@ export interface Inspection {
   period?: number | null
   direction?: number | null
 }
+
+export type EmergencyType = 'fire' | 'medical' | 'engine_failure' | 'collision' | 'sinking' | 'person_overboard' | 'other'
+
+export const EMERGENCY_TYPES: Record<EmergencyType, string> = {
+  fire: 'Fire',
+  medical: 'Medical Emergency',
+  engine_failure: 'Engine Failure',
+  collision: 'Collision',
+  sinking: 'Sinking / Flooding',
+  person_overboard: 'Person Overboard',
+  other: 'Other Emergency',
+}
+
+export interface EmergencyRequest {
+  emergency_type: EmergencyType
+  vessel_name: string
+  vessel_mmsi: string
+  vessel_lat: number
+  vessel_lon: number
+  user_lat: number
+  user_lon: number
+  message?: string
+}
+
+export interface EmergencyResponse {
+  success: boolean
+  request_id: string
+  status: string
+  message: string
+}
