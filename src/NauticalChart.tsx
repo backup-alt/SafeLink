@@ -136,22 +136,30 @@ function NauticalChart({ center, zoom, onCenterChange, focusPoint, onMapClick, r
     const map = mapRef.current
     if (!map) return
     const routeColors = ['#5cf2ed', '#ffd166', '#7ec8e3']
-    const apply = () => {
+    let cancelled = false
+
+    const removeRoutes = () => {
       for (let idx = 0; idx < 3; idx++) {
         const srcId = `nav-route-${idx}`
         const casingId = `nav-route-casing-${idx}`
         const lineId = `nav-route-line-${idx}`
-        const existing = map.getSource(srcId)
-        if (existing) map.removeSource(srcId)
-        if (map.getLayer(lineId)) map.removeLayer(lineId)
-        if (map.getLayer(casingId)) map.removeLayer(casingId)
+        try { if (map.getLayer(lineId)) map.removeLayer(lineId) } catch { /* ok */ }
+        try { if (map.getLayer(casingId)) map.removeLayer(casingId) } catch { /* ok */ }
+        try { if (map.getSource(srcId)) map.removeSource(srcId) } catch { /* ok */ }
       }
+    }
+
+    const addRoutes = () => {
+      if (cancelled || !map.isStyleLoaded()) return
+      removeRoutes()
       alternatives.forEach((r, idx) => {
         const srcId = `nav-route-${idx}`
         const casingId = `nav-route-casing-${idx}`
         const lineId = `nav-route-line-${idx}`
         const isActive = idx === selectedRouteIndex
-        map.addSource(srcId, { type: 'geojson', data: r })
+        if (!map.getSource(srcId)) {
+          map.addSource(srcId, { type: 'geojson', data: r })
+        }
         map.addLayer({
           id: casingId,
           type: 'line',
@@ -176,17 +184,32 @@ function NauticalChart({ center, zoom, onCenterChange, focusPoint, onMapClick, r
         })
       })
     }
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-    return () => {
-      for (let idx = 0; idx < 3; idx++) {
-        const lineId = `nav-route-line-${idx}`
-        const casingId = `nav-route-casing-${idx}`
-        const srcId = `nav-route-${idx}`
-        if (map.getLayer(lineId)) map.removeLayer(lineId)
-        if (map.getLayer(casingId)) map.removeLayer(casingId)
-        if (map.getSource(srcId)) map.removeSource(srcId)
+
+    const checkAndAdd = () => {
+      if (cancelled) return
+      if (alternatives.length === 0) return
+      const hasRoutes = alternatives.some((_, idx) => map.getSource(`nav-route-${idx}`))
+      if (!hasRoutes) addRoutes()
+    }
+
+    if (map.isStyleLoaded() && map.loaded()) addRoutes()
+    else if (map.isStyleLoaded()) {
+      const onStyleLoad = () => { if (!cancelled) addRoutes() }
+      map.once('load', onStyleLoad)
+      return () => {
+        cancelled = true
+        map.off('load', onStyleLoad)
+        removeRoutes()
       }
+    }
+
+    const onSourceData = () => checkAndAdd()
+    map.on('sourcedata', onSourceData)
+
+    return () => {
+      cancelled = true
+      map.off('sourcedata', onSourceData)
+      removeRoutes()
     }
   }, [alternatives, selectedRouteIndex])
 

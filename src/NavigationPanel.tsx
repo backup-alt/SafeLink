@@ -265,6 +265,19 @@ export default function NavigationPanel({
                 <span>Step 3: Choose Route</span>
               </div>
 
+              <div className="nav-mode-grid">
+                <button type="button" className={routeMode === 'auto' ? 'active' : ''} onClick={() => onSetRouteMode('auto')}>
+                  <Compass size={16} />
+                  <span>Automatic</span>
+                  <small>Generate route, distance, headings, ETA and condition markers.</small>
+                </button>
+                <button type="button" className={routeMode === 'manual' ? 'active' : ''} onClick={() => onSetRouteMode('manual')}>
+                  <MapPin size={16} />
+                  <span>Manual</span>
+                  <small>Add route points yourself, then calculate the plan.</small>
+                </button>
+              </div>
+
               <div className="nav-speed-row">
                 <label htmlFor="nav-speed">Speed</label>
                 <input
@@ -301,8 +314,8 @@ export default function NavigationPanel({
                 <MapPin size={14} /> {picking === 'waypoint' ? 'Tap map to place...' : 'Add waypoint'}
               </button>
 
-              <button type="button" className="nav-primary-button" onClick={onCalculate} disabled={loading}>
-                {loading ? 'Calculating...' : hasRoute ? 'Recalculate' : 'Find Best Route'}
+              <button type="button" className="nav-primary-button" onClick={onCalculate} disabled={loading || !routeMode}>
+                {loading ? 'Calculating...' : hasRoute ? 'Recalculate' : routeMode === 'manual' ? 'Calculate Manual Route' : 'Generate Route'}
               </button>
 
               {hasRoute && alternatives.length >= 2 && (

@@ -404,6 +404,20 @@ def _water_point(point):
         return False
 
 
+def _snap_to_water(point, max_radius_km=200):
+    if _water_point(point):
+        return point
+    for radius_km in [10, 25, 50, 100, max_radius_km]:
+        for angle_deg in range(0, 360, 15):
+            rad = math.radians(angle_deg)
+            dlat = radius_km * math.cos(rad) / 111.32
+            dlon = radius_km * math.sin(rad) / (111.32 * max(0.01, math.cos(math.radians(point[1]))))
+            cand = [round(point[0] + dlon, 5), round(point[1] + dlat, 5)]
+            if -180 <= cand[0] <= 180 and -90 <= cand[1] <= 90 and _water_point(cand):
+                return cand
+    return point
+
+
 _water_segment_cache = {}
 _land_bbox = None
 
@@ -430,7 +444,7 @@ def _water_segment(p1, p2):
             _water_segment_cache[key] = True
             return True
         dist = _haversine_km(p1[0], p1[1], p2[0], p2[1])
-        samples = max(20, min(60, int(dist / 5)))
+        samples = max(36, min(180, int(dist / 2)))
         for index in range(1, samples):
             t = index / samples
             if t < 0.005 or t > 0.995:
@@ -442,7 +456,7 @@ def _water_segment(p1, p2):
         _water_segment_cache[key] = True
         return True
     except Exception:
-        return False
+        return True
 
 
 def _sample_weather_along_route(coordinates, sample_count=6):
@@ -665,8 +679,8 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                         rounded = [round(point[0], 5), round(point[1], 5)]
                         if rounded not in candidates:
                             candidates.append(rounded)
-        if len(candidates) > 20:
-            candidates = candidates[:20]
+        if len(candidates) > 30:
+            candidates = candidates[:30]
         return candidates, land_bounds
 
     def filter_by_longitude(candidates, land_bounds, side):
@@ -693,7 +707,7 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
                 if all(_haversine_km(c[0], c[1], rm[0], rm[1]) > min_dist_km
                        for rm in ref_mids)]
 
-    def find_best_path(p1, p2, candidates, max_pairs=300):
+    def find_best_path(p1, p2, candidates, max_pairs=500):
         best = None
         best_dist = float('inf')
         for candidate in candidates:
@@ -813,6 +827,49 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
             if best:
                 return best, True
 
+        if _water_segment(p1, p2):
+            return [p1, p2], False
+
+        wide_candidates = []
+        for lat_step in range(-8, 9, 2):
+            for lon_step in range(-8, 9, 2):
+                mid_lon = (p1[0] + p2[0]) / 2 + lon_step
+                mid_lat = (p1[1] + p2[1]) / 2 + lat_step
+                cand = [round(mid_lon, 5), round(mid_lat, 5)]
+                if -180 <= cand[0] <= 180 and -90 <= cand[1] <= 90 and _water_point(cand):
+                    wide_candidates.append(cand)
+        if wide_candidates:
+            best = find_best_path(p1, p2, wide_candidates)
+            if best:
+                return best, True
+
+        def _recursive_split(start, end, depth=0):
+            if depth > 4:
+                return None
+            if _water_segment(start, end):
+                return [start, end]
+            mid_lon = (start[0] + end[0]) / 2
+            mid_lat = (start[1] + end[1]) / 2
+            offsets = [(0, 0), (0, -2), (0, 2), (-2, 0), (2, 0), (-2, -2), (2, -2), (-2, 2), (2, 2),
+                       (0, -5), (0, 5), (-5, 0), (5, 0), (-5, -5), (5, -5), (-5, 5), (5, 5)]
+            for dx, dy in offsets:
+                mid = [round(mid_lon + dx, 5), round(mid_lat + dy, 5)]
+                if not (180 >= mid[0] >= -180 and 90 >= mid[1] >= -90):
+                    continue
+                if not _water_point(mid):
+                    continue
+                left = _recursive_split(start, mid, depth + 1)
+                if not left:
+                    continue
+                right = _recursive_split(mid, end, depth + 1)
+                if right:
+                    return left + right[1:]
+            return None
+
+        result = _recursive_split(p1, p2)
+        if result and len(result) > 2:
+            return result, True
+
         return [p1, p2], True
 
     planned_points = [all_points[0]]
@@ -822,6 +879,8 @@ def _plan_single_route(all_points, prefer_direction=None, reference_path=None, e
         leg_path, detoured = plan_water_leg(p1, p2)
         if detoured:
             inserted_detours += max(0, len(leg_path) - 2)
+        if not detoured and not _water_segment(p1, p2):
+            unresolved_land_crossings += 1
         planned_points.extend(leg_path[1:])
     return planned_points, inserted_detours, unresolved_land_crossings
 
@@ -956,12 +1015,21 @@ def _build_route_response(all_points, speed_knots, inserted_detours, unresolved_
 @app.post("/api/route")
 def calculate_route(body: dict):
     """Advisory Demo Route — Not Certified for Navigation. Returns safest and direct route groups."""
+    _water_segment_cache.clear()
     origin = body.get("origin", [0, 0])
     destination = body.get("destination", [0, 0])
     waypoints = body.get("waypoints", [])
     speed_knots = max(1.0, min(50.0, float(body.get("speed_knots", 10))))
 
-    all_points = [origin] + [list(w) for w in waypoints] + [destination]
+    origin = list(origin)
+    destination = list(destination)
+    if not _water_point(origin):
+        origin = _snap_to_water(origin)
+    if not _water_point(destination):
+        destination = _snap_to_water(destination)
+    waypoints = [list(w) for w in waypoints]
+
+    all_points = [origin] + waypoints + [destination]
 
     shortest_planned, shortest_inserted, shortest_unresolved = _plan_single_route(
         list(all_points), prefer_direction=None
@@ -992,12 +1060,28 @@ def calculate_route(body: dict):
     ]
 
     scored = []
+    direct_distance = shortest_route.get("distance_km", 1)
     for name, route_data, planned_coords in candidates:
         coords = route_data.get("coordinates", [])
+        route_crosses_land = False
+        if coords:
+            check_step = max(1, len(coords) // 30)
+            for idx in range(0, len(coords), check_step):
+                pt = coords[idx]
+                if not _water_point(pt):
+                    route_crosses_land = True
+                    break
         weather_score, weather_summary, _ = _sample_weather_along_route(coords)
         traffic_level, traffic_count = _traffic_score_along_route(coords)
         pfz_score, pfz_summary = _pfz_proximity_score(coords)
-        combined_score = weather_score * 0.5 + pfz_score * 0.3 + (1.0 if traffic_level == "low" else 0.5 if traffic_level == "medium" else 0.2) * 0.2
+        route_distance = route_data.get("distance_km", 1)
+        distance_ratio = route_distance / max(direct_distance, 1)
+        distance_penalty = max(0, (distance_ratio - 1.2) * 0.3)
+        efficiency_score = max(0, 1.0 - distance_penalty)
+        if route_crosses_land:
+            combined_score = 0.0
+        else:
+            combined_score = weather_score * 0.45 + pfz_score * 0.2 + (1.0 if traffic_level == "low" else 0.5 if traffic_level == "medium" else 0.2) * 0.15 + efficiency_score * 0.2
         route_data["weather_score"] = round(combined_score, 2)
         route_data["weather_summary"] = weather_summary
         route_data["traffic_level"] = traffic_level

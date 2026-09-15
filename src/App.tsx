@@ -568,6 +568,11 @@ export default function App() {
     }
   }
 
+  const nauticalAlternatives = useMemo(() =>
+    navRouteAlternatives.map((r) => ({ type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: r.coordinates }, properties: { label: r.label } })),
+    [navRouteAlternatives],
+  )
+
   const handleMapViewChange = useCallback((view: MapView) => {
     setMapView(view)
     setInspection(null)
@@ -824,7 +829,7 @@ export default function App() {
           focusPoint={focusPoint}
           onMapClick={handleNauticalClick}
           route={navRoute ? { type: 'Feature', geometry: { type: 'LineString', coordinates: navRoute.coordinates }, properties: {} } : null}
-          alternatives={navRouteAlternatives.map((r) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.coordinates }, properties: { label: r.label } }))}
+          alternatives={nauticalAlternatives}
           selectedRouteIndex={selectedRouteIndex}
           origin={navOrigin}
           destination={navDestination}
