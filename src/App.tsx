@@ -256,6 +256,7 @@ export default function App() {
   const [nauticalVessels, setNauticalVessels] = useState<Vessel[]>([])
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false)
   const [weatherPoints, setWeatherPoints] = useState<{ position: [number, number]; waves: number | null; current: number | null }[]>([])
+  const [safetyCheckStarted, setSafetyCheckStarted] = useState(false)
 
   useEffect(() => {
     if (mapView !== 'nautical') return
@@ -845,8 +846,6 @@ export default function App() {
           selectedVessel={selectedVessel}
         />
       )}
-  {mapView === 'ocean' && <SafetyIndicator point={safetyPoint} times={times} />}
-
       <header className="topbar glass">
         <button className="menu-button" type="button" aria-label="Menu"><Menu size={22} /></button>
         <div className="brand"><span className="brand-mark">S</span><div><b>SAFE<span>LINK</span></b><small>OCEAN CONDITIONS</small></div></div>
@@ -855,6 +854,8 @@ export default function App() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Coordinates: 12.6, 80.4 or 12°N 80°E" aria-label="Search latitude and longitude" />
           <button type="submit" aria-label="Search coordinates"><Search size={19} /></button>
         </form>
+        {mapView === 'ocean' && <SafetyIndicator point={safetyPoint} times={times} started={safetyCheckStarted}
+          onStart={() => setSafetyCheckStarted(true)} onReset={() => setSafetyCheckStarted(false)} />}
         <div className="live-status"><span className="live-dot" /> Copernicus Marine</div>
         <button className="info-toggle" type="button" onClick={() => setInfoOpen(!infoOpen)}><Info size={18} /> Data info <ChevronDown size={15} /></button>
       </header>

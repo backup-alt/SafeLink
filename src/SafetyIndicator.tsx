@@ -7,6 +7,9 @@ import type { SafetyStatus, TimelineForecastHour, VesselType } from './utils/saf
 export interface SafetyIndicatorProps {
   point: [number, number] | null
   times: string[]
+  started: boolean
+  onStart: () => void
+  onReset: () => void
 }
 
 const VESSEL_MODES: { value: VesselType; label: string }[] = [
@@ -57,18 +60,9 @@ const NEUTRAL_BADGE: CSSProperties = {
 }
 
 const CONTAINER: CSSProperties = {
-  position: 'absolute',
-  right: 20,
-  bottom: 180,
-  top: 'auto',
-  left: 'auto',
-  transform: 'none',
-  zIndex: 9,
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-end',
-  gap: 8,
-  pointerEvents: 'none',
+  position: 'relative',
+  display: 'inline-flex',
+  alignItems: 'center',
   fontFamily: 'Manrope, Inter, system-ui, sans-serif',
 }
 
@@ -198,26 +192,11 @@ const CLOSE_BUTTON: CSSProperties = {
   boxShadow: '0 4px 14px rgba(0, 0, 0, .4)',
 }
 
-const FAB: CSSProperties = {
-  pointerEvents: 'auto',
-  minWidth: 132,
-  height: 52,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 8,
-  padding: '0 16px',
-  border: '1px solid rgba(94, 233, 230, .55)',
-  borderRadius: '50%',
-  background: 'linear-gradient(135deg, #123b49, #0b202d)',
-  color: '#78f0e9',
-  cursor: 'pointer',
-  boxShadow: '0 0 0 4px rgba(54, 220, 215, .08), 0 12px 30px rgba(0, 0, 0, .45)',
-  transition: 'transform .18s, box-shadow .18s, background .18s',
-}
-
 const PANEL: CSSProperties = {
-  position: 'relative',
+  position: 'absolute',
+  top: 'calc(100% + 10px)',
+  right: 0,
+  zIndex: 9,
   pointerEvents: 'auto',
   minWidth: 226,
   padding: '12px 10px 10px',
@@ -237,8 +216,7 @@ const PANEL_TITLE: CSSProperties = {
   textTransform: 'uppercase',
 }
 
-export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
-  const [hasStartedCheck, setHasStartedCheck] = useState(false)
+export function SafetyIndicator({ point, times, started, onStart, onReset }: SafetyIndicatorProps) {
   const [selectedVessel, setSelectedVessel] = useState<VesselType | null>(null)
   const [mapPointSelected, setMapPointSelected] = useState(false)
   const [analysisRun, setAnalysisRun] = useState(0)
@@ -250,13 +228,13 @@ export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
     point,
     times,
     vesselType: selectedVessel ?? 'small',
-    enabled: hasStartedCheck && selectedVessel !== null && mapPointSelected && analysisRun > 0 && analysisTarget === pointKey,
+    enabled: started && selectedVessel !== null && mapPointSelected && analysisRun > 0 && analysisTarget === pointKey,
     runId: analysisRun,
     debounceMs: 0,
   })
 
   const resetSafetyCheck = () => {
-    setHasStartedCheck(false)
+    onReset()
     setSelectedVessel(null)
     setMapPointSelected(false)
     setAnalysisRun(0)
@@ -267,7 +245,7 @@ export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
 
   useEffect(() => {
     const selectionKey = pointKey && selectedVessel ? `${pointKey}:${selectedVessel}` : null
-    if (!hasStartedCheck || !selectedVessel || !pointKey || !selectionKey) {
+    if (!started || !selectedVessel || !pointKey || !selectionKey) {
       setMapPointSelected(false)
       setAnalysisRun(0)
       setAnalysisTarget(null)
@@ -285,11 +263,11 @@ export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
     lastTriggeredSelection.current = selectionKey
     setAnalysisTarget(pointKey)
     setAnalysisRun((current) => current + 1)
-  }, [awaitingPointKey, hasStartedCheck, pointKey, selectedVessel])
+  }, [awaitingPointKey, pointKey, selectedVessel, started])
 
-  const visibleStatus = hasStartedCheck ? status : null
-  const visibleError = hasStartedCheck ? error : null
-  const visibleLoading = hasStartedCheck ? isLoading : false
+  const visibleStatus = started ? status : null
+  const visibleError = started ? error : null
+  const visibleLoading = started ? isLoading : false
   const meta = visibleStatus ? STATUS_META[visibleStatus] : null
   const badgeStyle = meta ? meta.badge : NEUTRAL_BADGE
   const badgeLabel = meta
@@ -298,7 +276,7 @@ export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
       ? 'Error'
       : visibleLoading
         ? 'Analyzing…'
-        : !hasStartedCheck
+        : !started
           ? 'Ready to evaluate trip safety.'
           : selectedVessel === null
             ? 'Select a vessel type to continue.'
@@ -307,18 +285,17 @@ export function SafetyIndicator({ point, times }: SafetyIndicatorProps) {
               : 'Location Selected. Ready to Analyze.'
 
   const report = visibleStatus && selectedVessel ? reportFor(visibleStatus, forecast, selectedVessel) : null
-  const showClose = hasStartedCheck || Boolean(visibleStatus || visibleError || visibleLoading)
+  const showClose = started || Boolean(visibleStatus || visibleError || visibleLoading)
 
   return (
     <div role="status" aria-live="polite" style={CONTAINER}>
-      {!hasStartedCheck && (
-        <button type="button" aria-label="Run safety check" title="Run safety check" onClick={() => setHasStartedCheck(true)} style={FAB}>
-          <ShieldCheck size={23} />
+      {!started && (
+        <button className="safety-trigger" type="button" aria-label="Run safety check" title="Run safety check" onClick={onStart}>
+          <ShieldCheck size={14} />
           <span>Run Safety</span>
         </button>
       )}
-
-      {hasStartedCheck && !isLoading && !visibleStatus && (
+      {started && !isLoading && !visibleStatus && (
         <div style={PANEL}>
           <button type="button" aria-label="Cancel safety check" title="Cancel" onClick={resetSafetyCheck} style={CLOSE_BUTTON}>
             <X size={15} />

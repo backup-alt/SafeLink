@@ -46,6 +46,9 @@ button { color: inherit; }
 .search input { min-width: 0; flex: 1; padding: 0 14px; color: #f2f8f8; border: 0; outline: 0; background: transparent; font-size: 13px; }
 .search input::placeholder { color: #afbec1; }
 .search button { height: 100%; padding: 0 13px; }
+.safety-trigger { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 4px 12px; border: 1px solid rgba(155, 199, 206, .22); border-radius: 20px; background: rgba(255, 255, 255, .1); color: #d8e6e7; cursor: pointer; font-size: 13px; font-family: Manrope, Inter, system-ui, sans-serif; white-space: nowrap; }
+.safety-trigger:hover { border-color: rgba(155, 199, 206, .42); background: rgba(255, 255, 255, .14); color: #f2fbfb; }
+.safety-trigger:focus-visible { outline: 2px solid #53e6e2; outline-offset: 2px; }
 .live-status { display: flex; align-items: center; gap: 8px; color: #c8d5d7; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #55e7a0; box-shadow: 0 0 0 5px #55e7a018; }
 .info-toggle { display: flex; align-items: center; gap: 7px; color: #d8e6e7; font-size: 12px; white-space: nowrap; }
