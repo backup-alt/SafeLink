@@ -343,7 +343,7 @@ export function SafetyIndicator({ point, times, started, onStart, onReset }: Saf
       )}
 
       {visibleStatus && !isLoading && (
-        <div style={{ ...PANEL, minWidth: 250 }}>
+        <div style={{ ...PANEL, minWidth: 250, display: 'flex', flexDirection: 'column', gap: 9 }}>
           <button type="button" aria-label="Close safety result" title="Close" onClick={resetSafetyCheck} style={CLOSE_BUTTON}>
             <X size={15} />
           </button>
@@ -351,6 +351,14 @@ export function SafetyIndicator({ point, times, started, onStart, onReset }: Saf
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: meta?.dot, boxShadow: `0 0 12px ${meta?.dot}` }} />
             {badgeLabel}
           </div>
+          {report && (
+            <div style={{ background: badgeStyle.background, color: badgeStyle.color, borderRadius: 9, padding: '9px 12px', textAlign: 'left', border: '1px solid rgba(255,255,255,.16)' }}>
+              <strong style={{ display: 'block', marginBottom: 3, color: badgeStyle.color, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', opacity: 0.8 }}>
+                Analyzing Report
+              </strong>
+              <span style={{ color: badgeStyle.color, fontSize: 11, lineHeight: 1.5 }}>{report}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -360,12 +368,6 @@ export function SafetyIndicator({ point, times, started, onStart, onReset }: Saf
         </div>
       )}
 
-      {report && <div style={{ ...PANEL, maxWidth: 300, padding: '10px 14px', textAlign: 'left' }}>
-        <strong style={{ display: 'block', marginBottom: 3, color: '#9fb6bf', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase' }}>
-          Analyzing Report
-        </strong>
-        <span style={{ color: '#dcebec', fontSize: 11, lineHeight: 1.5 }}>{report}</span>
-      </div>}
       {showClose && <div style={DISCLAIMER}>Visualization only. Not certified navigational guidance.</div>}
     </div>
   )
