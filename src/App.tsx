@@ -14,6 +14,7 @@ import VesselDetails from './VesselDetails'
 import EmergencyHelpModal from './EmergencyHelpModal'
 import MapViewSwitcher from './MapViewSwitcher'
 import NavigationPanel from './NavigationPanel'
+import AudioBrief from './AudioBrief'
 import type { MapAction, MapContext } from './chatTypes'
 import type { Catalog, ConditionSample, FieldData, GeocodeResult, Inspection, LayerId, LayerMeta, MapView, NauticalPointDetails, NavRoute, NearestPFZ, OriginLocation, PFZFeature, PFZResponse, SavedNavRoute, Vessel } from './types'
 
@@ -945,6 +946,11 @@ export default function App() {
               {sample && <small>Sample: {formatTime(sample.time)} ({sample.time})</small>}
             </div>
           })}
+          <AudioBrief
+  englishText={`Nearest potential fishing zone ${nearest.feature.properties.Sno ?? 'unknown'} is ${nearest.distance_km.toFixed(1)} kilometres away. The nearest point is at latitude ${nearest.point.lat.toFixed(4)} degrees and longitude ${nearest.point.lng.toFixed(4)} degrees. The advisory date is ${nearest.feature.properties.advisory_date ?? 'unknown'}. Please check the latest marine safety information before travelling.`}
+  tamilText={`அருகிலுள்ள மீன்பிடி ஏற்ற பகுதி ${nearest.feature.properties.Sno ?? 'தெரியவில்லை'}. இது ${nearest.distance_km.toFixed(1)} கிலோமீட்டர் தொலைவில் உள்ளது. அருகிலுள்ள இடத்தின் அட்சரேகை ${nearest.point.lat.toFixed(4)} டிகிரி மற்றும் தீர்க்கரேகை ${nearest.point.lng.toFixed(4)} டிகிரி. அறிவிப்பு தேதி ${nearest.feature.properties.advisory_date ?? 'தெரியவில்லை'}. பயணம் செய்வதற்கு முன் சமீபத்திய கடல் பாதுகாப்பு தகவல்களை சரிபார்க்கவும்.`}
+  hindiText={`निकटतम संभावित मछली पकड़ने का क्षेत्र ${nearest.feature.properties.Sno ?? 'अज्ञात'} है। यह ${nearest.distance_km.toFixed(1)} किलोमीटर दूर है। निकटतम स्थान का अक्षांश ${nearest.point.lat.toFixed(4)} डिग्री और देशांतर ${nearest.point.lng.toFixed(4)} डिग्री है। सलाह की तारीख ${nearest.feature.properties.advisory_date ?? 'अज्ञात'} है। यात्रा करने से पहले नवीनतम समुद्री सुरक्षा जानकारी की जाँच करें।`}
+/>
           <small>Copernicus nearest-grid samples at the nearest available time to the timeline. Direct spherical distance—not a safe sea route or a catch guarantee.</small>
         </section>
       )}
@@ -957,6 +963,11 @@ export default function App() {
           <div className="inspection-row"><span>PFZ</span><b>{selectedPFZ.properties.Sno ?? 'Not supplied'}</b></div>
           <div className="inspection-row"><span>Advisory</span><b>{selectedPFZ.properties.advisory_date ?? 'Unknown'}</b></div>
           {typeof selectedPFZ.properties.Length === 'number' && <div className="inspection-row"><span>Reported length*</span><b>{selectedPFZ.properties.Length.toFixed(1)}</b></div>}
+          <AudioBrief
+  englishText={`Potential fishing zone ${selectedPFZ.properties.Sno ?? 'unknown'} from INCOIS. The advisory date is ${selectedPFZ.properties.advisory_date ?? 'unknown'}. This is an advisory for fishing activity and is not navigation guidance. Please check the latest marine safety information before travelling.`}
+  tamilText={`INCOIS வழங்கிய மீன்பிடி ஏற்ற பகுதி ${selectedPFZ.properties.Sno ?? 'தெரியவில்லை'}. அறிவிப்பு தேதி ${selectedPFZ.properties.advisory_date ?? 'தெரியவில்லை'}. இது மீன்பிடி நடவடிக்கைக்கான அறிவிப்பு மட்டுமே, வழிசெலுத்தலுக்கான வழிகாட்டுதல் அல்ல. பயணம் செய்வதற்கு முன் சமீபத்திய கடல் பாதுகாப்பு தகவல்களை சரிபார்க்கவும்.`}
+  hindiText={`INCOIS द्वारा बताया गया संभावित मछली पकड़ने का क्षेत्र ${selectedPFZ.properties.Sno ?? 'अज्ञात'} है। सलाह की तारीख ${selectedPFZ.properties.advisory_date ?? 'अज्ञात'} है। यह केवल मछली पकड़ने की गतिविधि के लिए एक सलाह है और नेविगेशन मार्गदर्शन नहीं है। यात्रा करने से पहले नवीनतम समुद्री सुरक्षा जानकारी की जाँच करें।`}
+/>
           <small>*Source length units are not specified by this feed. Advisory only—not navigation guidance.{pfz?.metadata.stale ? ' Cached advisory; refresh unavailable.' : ''}</small>
         </section>
       )}

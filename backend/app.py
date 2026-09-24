@@ -12,7 +12,9 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.error import URLError
 from urllib.request import Request, urlopen
-
+from fastapi import Body
+from fastapi.responses import StreamingResponse
+from backend.audio import translate_text, create_audio
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -361,7 +363,12 @@ def vessels(
     except (OSError, URLError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=502, detail=f"AIS data unavailable: {error}") from error
 
-
+@app.post("/api/audio-brief")
+def audio_brief(text: str = Body(...),language: str = Body("en")):
+    translated_text = translate_text(text, language)
+    audio = create_audio(translated_text, language)
+    return StreamingResponse(audio,media_type="audio/mpeg"
+                             )
 def _haversine_km(lon1, lat1, lon2, lat2):
     rlon1, rlat1 = math.radians(lon1), math.radians(lat1)
     rlon2, rlat2 = math.radians(lon2), math.radians(lat2)
