@@ -246,6 +246,9 @@ app.add_middleware(
 chat_router = create_router(repository, pfz_service)
 app.include_router(chat_router)
 
+from .alerts.routes import router as alerts_router
+app.include_router(alerts_router)
+
 
 @app.get("/api/health")
 def health() -> dict[str, str]:

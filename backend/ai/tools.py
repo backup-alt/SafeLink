@@ -17,6 +17,7 @@ TOOL_MODELS = {
     'get_pfz_details': (PFZArgs, 'Checking INCOIS PFZ data', 'INCOIS'),
     'resolve_location': (LocationArgs, 'Finding the named location', 'Natural Earth map labels'),
     'get_data_availability': (EmptyArgs, 'Checking available data times', 'Copernicus Marine'),
+    'get_guardrail_status': (Point, 'Checking guardrail alerts', 'SafeLink Guardrail'),
     'update_map': (MapArgs, 'Updating map', None),
 }
 DESCRIPTIONS = {
@@ -27,6 +28,7 @@ DESCRIPTIONS = {
     'get_pfz_details': 'Get one verified INCOIS advisory by its PFZ Sno. No guessed coordinates.',
     'resolve_location': 'Find named places in the existing map label gazetteer; may return several candidates or none. Ask user to choose if ambiguous. Coordinates are label positions, not vessel locations.',
     'get_data_availability': 'Get coverage and available time ranges for the five Copernicus layers.',
+    'get_guardrail_status': 'Check guardrail at a coordinate: geofence ingress, weather interrupt (cyclone/lightning), wave>2.5m, chlorophyll <0.1 mg/m³ with age <48h, and ship accumulation within 0.5deg. Returns level safe/warning/danger and actionable alerts.',
     'update_map': 'Control the visible map: zoom_in/zoom_out, fly_to/place_marker (coordinates and zoom 2–14), highlight_pfz (verified PFZ ID), select_layer, set_time (ISO), clear_map_highlights. request_location opens an optional location chooser; it does NOT return coordinates or grant permission. Set unused fields to null.',
 }
 
@@ -132,8 +134,11 @@ class MarineTools:
                 return ToolResult({'region': catalog['region'], 'layers': [
                     {'id': x['id'], 'available': x['available'], 'unit': x['unit'],
                      'first_time': min(x['times']) if x['times'] else None,
-                     'last_time': max(x['times']) if x['times'] else None}
+                      'last_time': max(x['times']) if x['times'] else None}
                     for x in catalog['layers']]})
+            if name == 'get_guardrail_status':
+                from backend.alerts.weather_service import fused_guardrail_check
+                return ToolResult(fused_guardrail_check(args.latitude, args.longitude, self.repository))
             if name == 'get_marine_conditions':
                 samples = {}
                 for layer in dict.fromkeys(args.layers):

@@ -686,6 +686,41 @@ function OceanMap({ field, layer, region, focusPoint, onInspect, onHover, pfz, p
     if (map) map.getCanvas().style.cursor = pickingLocation ? 'crosshair' : ''
   }, [pickingLocation])
 
+  // Guardrail overlays: geofences + weather flashing
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    let cancelled = false
+    let flash: number | null = null
+    const add = async () => {
+      if (!map.isStyleLoaded()) { map.once('load', add); return }
+      try {
+        const g = await fetch('/api/geofences').then(r=>r.json())
+        if (cancelled) return
+        if (map.getSource('guard-geofence')) (map.getSource('guard-geofence') as any).setData(g)
+        else {
+          map.addSource('guard-geofence', { type:'geojson', data: g })
+          map.addLayer({ id:'guard-geofence-fill', type:'fill', source:'guard-geofence', paint:{'fill-color':'#ff3b30','fill-opacity':0.18}}, 'safelink-land-fill')
+          map.addLayer({ id:'guard-geofence-line', type:'line', source:'guard-geofence', paint:{'line-color':'#ff3b30','line-width':2,'line-dasharray':[2,2]}})
+        }
+      } catch {}
+      try {
+        const w = await fetch('/api/alerts/weather').then(r=>r.json())
+        if (cancelled) return
+        if (map.getSource('guard-weather')) (map.getSource('guard-weather') as any).setData(w)
+        else {
+          map.addSource('guard-weather', { type:'geojson', data: w })
+          map.addLayer({ id:'guard-weather-fill', type:'fill', source:'guard-weather', paint:{'fill-color': ['case',['==',['get','severity'],'danger'],'#ff0000','#ffcc00'],'fill-opacity':0.32}}, 'safelink-land-fill')
+          map.addLayer({ id:'guard-weather-line', type:'line', source:'guard-weather', paint:{'line-color':'#ff0000','line-width':2}})
+        }
+        let on=false
+        flash = window.setInterval(()=>{ if(!map.getLayer('guard-weather-fill')) return; on=!on; map.setPaintProperty('guard-weather-fill','fill-opacity', on?0.55:0.28)}, 650)
+      } catch {}
+    }
+    add()
+    return ()=>{ cancelled=true; if(flash) clearInterval(flash)}
+  }, [])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !originLocation) return
