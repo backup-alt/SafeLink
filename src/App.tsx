@@ -14,6 +14,8 @@ import VesselDetails from './VesselDetails'
 import EmergencyHelpModal from './EmergencyHelpModal'
 import MapViewSwitcher from './MapViewSwitcher'
 import NavigationPanel from './NavigationPanel'
+import GuardrailBanner from './components/GuardrailBanner'
+import GuardrailPopup from './components/GuardrailPopup'
 import type { MapAction, MapContext } from './chatTypes'
 import type { Catalog, ConditionSample, FieldData, GeocodeResult, Inspection, LayerId, LayerMeta, MapView, NauticalPointDetails, NavRoute, NearestPFZ, OriginLocation, PFZFeature, PFZResponse, SavedNavRoute, Vessel } from './types'
 
@@ -221,7 +223,7 @@ export default function App() {
   const [nearestLoading, setNearestLoading] = useState(false)
   const [nearestError, setNearestError] = useState<string | null>(null)
   const [conditions, setConditions] = useState<Partial<Record<LayerId, ConditionSample | null>>>({})
-  const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>('choose')
+  const [locationStep, setLocationStep] = useState<'choose' | 'map' | 'locating' | 'confirm' | null>(null)
   const [originLocation, setOriginLocation] = useState<OriginLocation | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationPurpose, setLocationPurpose] = useState<'pfz' | 'chat'>('chat')
@@ -795,8 +797,19 @@ export default function App() {
     setNavRoute(navRouteAlternatives[index] ?? null)
   }, [navRouteAlternatives])
 
+  const guardrailPoint: [number, number] | null = clickedLocation ? [clickedLocation.longitude, clickedLocation.latitude] as [number, number] : inspection ? [inspection.lng, inspection.lat] as [number, number] : null
+  const [popupPoint, setPopupPoint] = useState<[number, number] | null>(null)
+
+  useEffect(() => {
+    if (guardrailPoint && (guardrailPoint[0] !== popupPoint?.[0] || guardrailPoint[1] !== popupPoint?.[1])) {
+      setPopupPoint(guardrailPoint)
+    }
+  }, [guardrailPoint?.[0], guardrailPoint?.[1]])
+
   return (
     <main className="app-shell">
+      {mapView === 'ocean' && guardrailPoint && <GuardrailBanner point={guardrailPoint} />}
+      {mapView === 'ocean' && <GuardrailPopup point={popupPoint} onClose={() => setPopupPoint(null)} />}
       {mapView === 'ocean' && (
         <OceanMap
           field={field}
@@ -876,6 +889,7 @@ export default function App() {
           <label><input type="checkbox" checked={pfzEnabled && !!pfz} disabled={!pfz}
             onChange={(event) => { setPFZEnabled(event.target.checked); setSelectedPFZ(null) }} />
             <span>Potential Fishing Zones</span></label>
+          <small style={{display:'block',marginTop:8,opacity:0.7}}>Guardrail: red = restricted / cyclone, yellow = warning. Click sea to check pipe.</small>
           <small role="status">{pfzLoading ? 'Loading INCOIS advisory…'
             : !pfz ? 'PFZ unavailable · retrying automatically'
             : `${pfz.metadata.stale || pfzError ? 'Cached · stale · ' : ''}INCOIS · ${pfz.metadata.feature_count} PFZ features`}</small>
