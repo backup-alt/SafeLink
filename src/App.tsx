@@ -14,12 +14,9 @@ import VesselDetails from './VesselDetails'
 import EmergencyHelpModal from './EmergencyHelpModal'
 import MapViewSwitcher from './MapViewSwitcher'
 import NavigationPanel from './NavigationPanel'
-<<<<<<< HEAD
-import AudioBrief from './AudioBrief'
-=======
 import GuardrailBanner from './components/GuardrailBanner'
 import GuardrailPopup from './components/GuardrailPopup'
->>>>>>> 48735c7e29e845af369aabf3c7f8b924d41cfcf0
+import AudioBrief from './AudioBrief'
 import type { MapAction, MapContext } from './chatTypes'
 import type { Catalog, ConditionSample, FieldData, GeocodeResult, Inspection, LayerId, LayerMeta, MapView, NauticalPointDetails, NavRoute, NearestPFZ, OriginLocation, PFZFeature, PFZResponse, SavedNavRoute, Vessel } from './types'
 
