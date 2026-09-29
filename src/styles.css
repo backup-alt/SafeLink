@@ -388,6 +388,7 @@ button { color: inherit; }
   border-radius: 6px; color: #ff503c; font: 700 12px/1 Manrope, sans-serif;
   cursor: pointer; transition: all 0.15s;
 }
+.inspection-card.vessel-details > .emergency-help-btn { position: static; }
 .emergency-help-btn:hover { background: rgba(255, 80, 60, 0.25); border-color: #ff503c; }
 
 .emergency-overlay {
